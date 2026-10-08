@@ -15,10 +15,10 @@ dist-ssr
 !.vscode/extensions.json
 .DS_Store
 
-# Data
+# Data (database files are not tracked in git)
 *.db
 *.db-wal
 *.db-shm
 
-# Security
+# Environment variables
 .env
