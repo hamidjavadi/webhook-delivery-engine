@@ -18,3 +18,13 @@
 ## Task DoD
 
 A task is Done only when acceptance criteria are met, tests pass, coverage thresholds are satisfied, required lint/format/build checks succeed, affected documentation and ADRs are updated, changes are reviewed, and no hidden risks/limitations remain. Cline MUST NOT claim that unrun or blocked items are Done.
+
+## Task Execution & Git Workflow
+
+- **Single-Task Scope:** Execute exactly ONE task per user prompt. Never auto-advance to subsequent tasks in `milestones-and-tasks.md`.
+- **Branch-Per-Task:** Always branch from `main` using the format `<type>/<task-id>-<short-description>` before making changes.
+- **Pull Request & Stop:** Upon completing the task DoD:
+  1. Commit with Conventional Commits.
+  2. Push the branch.
+  3. Create a Pull Request via GitHub CLI (`gh pr create`).
+  4. HALT execution immediately and wait for user review/merge.
