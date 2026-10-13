@@ -1,7 +1,7 @@
 # Test-Driven Development Rules
 
-- Cline MUST follow the strict **Red → Green → Refactor** cycle: first write a relevant test and observe it fail as expected (Red); then write the minimum production code needed to make it pass (Green); then refactor while keeping it green.
-- Cline MUST NOT write production code for new/changed behavior before a corresponding failing test exists. If testability or reproducing the failure is not possible, explain the blocker and obtain approval before making an exception.
+- Agent MUST follow the strict **Red → Green → Refactor** cycle: first write a relevant test and observe it fail as expected (Red); then write the minimum production code needed to make it pass (Green); then refactor while keeping it green.
+- Agent MUST NOT write production code for new/changed behavior before a corresponding failing test exists. If testability or reproducing the failure is not possible, explain the blocker and obtain approval before making an exception.
 - Tests MUST have a clear Arrange–Act–Assert (AAA) structure, be independent and deterministic, and have one primary reason to fail.
 - Test names MUST describe the behavior and expectation (for example, `returns_..._when_...` or the repository's usual pattern) and follow the project's language/framework conventions.
 - Tests MUST be placed in the structure corresponding to the code and repository conventions; each test must be testable and runnable individually. Test data should be small and readable.
