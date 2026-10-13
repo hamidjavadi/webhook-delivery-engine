@@ -109,6 +109,15 @@ should implement their own TTL (typically 24-48 hours) if they manage the key li
 
 ## Related Specs
 
-- [`../README.md`](../README.md) - Project-wide guarantees
-- [`webhook-lifecycle.md`](./webhook-lifecycle.md) - Status transition rules
+- [`../README.md`](../01-plan/prd.md) - Project-wide guarantees
+- [`webhook-lifecycle.md`](../01-plan/webhook-lifecycle.md) - Status transition rules
 - [`retry-strategy.md`](./retry-strategy.md) - Retry key preservation
+
+---
+
+## Related Documents
+
+- [Product Requirements Document](../01-plan/prd.md)
+- [Webhook Lifecycle](../01-plan/webhook-lifecycle.md)
+- [Retry Strategy](./retry-strategy.md)
+- [Ingest Webhook](./ingest-webhook.md)

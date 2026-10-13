@@ -228,6 +228,16 @@ Request → Process Webhook (1/5) → Process Webhook (2/5) → ... → Process 
 
 ## Related Specs
 
-- [`../README.md`](../README.md) - Project-wide guarantees
+- [`../README.md`](../01-plan/prd.md) - Project-wide guarantees
 - [`idempotency-contracts.md`](./idempotency-contracts.md) - Idempotency key requirements
-- [`webhook-lifecycle.md`](./webhook-lifecycle.md) - Status transition rules
+- [`webhook-lifecycle.md`](../01-plan/webhook-lifecycle.md) - Status transition rules
+
+---
+
+## Related Documents
+
+- [Product Requirements Document](../01-plan/prd.md)
+- [Webhook Lifecycle](../01-plan/webhook-lifecycle.md)
+- [Idempotency Contracts](./idempotency-contracts.md)
+- [Ingest Webhook](./ingest-webhook.md)
+- [ADR 0001 — SQLite with WAL Journal](./adr/0001-sqlite-with-wal-journal.md)
