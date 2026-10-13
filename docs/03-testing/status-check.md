@@ -91,3 +91,11 @@ Authorization: Bearer <token>
 - Status transitions are logged with full context
 - Querying past attempts uses prepared statements for performance
 - Failed attempt details are redacted if configured to not expose errors externally
+
+---
+
+## Related Documents
+
+- [Webhook Ingestion](../02-design/ingest-webhook.md)
+- [Webhook Lifecycle](../01-plan/webhook-lifecycle.md)
+- [Test Plan](./test-plan.md)

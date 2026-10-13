@@ -55,3 +55,12 @@ const webhookPayloadSchema = z.object({
 - Idempotency check occurs after validation
 - Database transaction ensures atomic state changes
 - Logs include `webhookId` and attempt metadata
+
+---
+
+## Related Documents
+
+- [Webhook Lifecycle](../01-plan/webhook-lifecycle.md)
+- [Idempotency Contracts](./idempotency-contracts.md)
+- [Retry Strategy](./retry-strategy.md)
+- [Status Check Endpoint](../03-testing/status-check.md)
