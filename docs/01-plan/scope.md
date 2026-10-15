@@ -18,43 +18,52 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 ### 2.1 Persistence & Data Schema
 
 - **Dual-Table Schema:**
-  - `webhook_events`: Durable queue holding event status, payload, next retry timestamp, attempt count, and worker claim locks.
-  - `webhook_event_attempts`: Append-only audit log recording timestamps, HTTP status codes, latencies, response body snippets (capped at 1 KB), and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
+  - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, authenticated `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
+  - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
 - **Multi-Dialect Database Adapters:**
   - Unified adapter interface with native driver support for:
     - SQLite (`better-sqlite3`)
     - PostgreSQL (`pg`)
     - MySQL (`mysql2`)
 - **Atomic Claim Mechanism:**
-  - Driver-agnostic conditional `UPDATE` ensuring zero double-claims under high concurrent execution.
-  - Built-in stale claim recovery for crashed or stalled worker processes.
+  - Unified driver-agnostic conditional `UPDATE` query pattern preventing concurrent claims on the same eligible row (`status IN ('pending', 'retry')` where `next_retry_at <= NOW()`) across SQLite, PostgreSQL, and MySQL, with final locking strategy ratified in the SDD.
+  - Stale claim recovery for worker crashes (reclaiming rows stuck in `processing` past lease/timeout thresholds; final mechanism fixed at design checkpoint).
 
 ### 2.2 Core Ingestion & Delivery Engine
 
-- **Idempotent Ingestion:**
-  - Single-statement atomic upserts (`ON CONFLICT DO NOTHING` / `INSERT IGNORE`).
-  - Replay detection returning HTTP `200` with an `idempotent_replay: true` indicator without duplicate queueing.
+- **Idempotent Ingestion & Tenant Isolation:**
+  - System-generated cryptographically secure `id` assigned per event; client supplies only `idempotency_key` and payload.
+  - Per-tenant idempotency enforced via `UNIQUE(client_id, idempotency_key)` constraint.
+  - Single-statement atomic upsert (`INSERT ... ON CONFLICT DO NOTHING` / `INSERT IGNORE`).
+  - Replay detection on HTTP `202 Accepted` responses, returning both system `id` and `idempotency_key` along with an `idempotent_replay: true|false` indicator without duplicate queueing.
 - **Delivery & Retry Policy:**
-  - Bounded exponential backoff with full jitter formula: `min(base * 2^(attempt - 1), capMs)`.
-  - Configurable base delay (default: 1,000 ms), maximum backoff cap (default: 60 s), timeout limit (default: 10,000 ms), and retry threshold (default: 5 attempts).
-  - Status classification: `2xx` treated as successful; `4xx` (including `429`) and `5xx` treated as retryable; non-retryable terminal failures upon reaching max attempts.
+  - Strictly at-least-once delivery semantics; consumers deduplicate using the system-generated event `id` supplied in delivery headers and body.
+  - Bounded exponential backoff with full jitter formula: `next_retry_at = now + random(0, min(base * 2^(attempt - 1), capMs))`.
+  - Configurable parameters: base delay (default: 1,000 ms), maximum backoff cap (default: 60,000 ms), per-delivery timeout limit (`timeoutLimitMs`, default: 10,000 ms), and retry ceiling (`maxAttempts`, default: 5 attempts).
+  - Status classification: `2xx` treated as successful; `4xx` (including `429`) and `5xx` treated as retryable until `maxAttempts`; terminal `failed` state with attempt outcome `exhausted` once retry ceiling is reached.
 
 ### 2.3 Security & Protection
 
-- **Constant-Time Ingestion Authentication:**
-  - Ingestion endpoints secured via Bearer token / API Key using `crypto.timingSafeEqual` to eliminate timing attacks.
+- **Constant-Time Ingestion Authentication & Access Control:**
+  - Ingestion endpoints secured via Bearer token / API Key using `crypto.timingSafeEqual` over equal-length derived/hashed buffers with no early exits to prevent timing attacks.
+  - Authenticated identity resolved to `client_id` and stamped onto all ingested event rows.
+- **Tenant Data Isolation & BOLA/IDOR Prevention:**
+  - Strict tenant boundary enforcement across all read/query endpoints; database queries scoped strictly by authenticated `client_id` (`WHERE id = :id AND client_id = :authClientId`). Unauthorized access attempts yield HTTP `404 Not Found`.
 - **Cryptographic Delivery Signing:**
-  - HMAC SHA-256 payload signing delivered via `x-webhook-signature` and `x-webhook-timestamp` headers.
+  - Outbound delivery payload signed using HMAC SHA-256 with timestamp (`timestamp.body`) to prevent replay attacks, transmitted via `x-webhook-signature` and `x-webhook-timestamp` headers.
 - **SSRF Protection:**
-  - Enforced destination URL validation blocking private subnets, loopback addresses, RFC1918 networks, and cloud metadata endpoints (`169.254.169.254`).
+  - Destination URL validation blocking private subnets (RFC 1918), loopback addresses (`127.0.0.1`, `localhost`), link-local addresses, and cloud metadata endpoints (`169.254.169.254`) prior to dispatch.
 
 ### 2.4 API & Observability
 
 - **REST Endpoints:**
-  - `POST /webhooks`: Ingest new webhook event.
-  - `GET /webhooks/:id`: Fetch current event status and delivery metadata.
-  - `GET /webhooks/:id/attempts`: Fetch the chronological attempt history and audit trail.
-- **Structured Logging:** Contextual JSON logs for claims, dispatches, and final state transitions.
+  - `POST /webhooks`: Ingest new webhook event (accepts `idempotency_key`, `payload`, optional `destination_url` with fallback to configured `WEBHOOK_URL`).
+  - `GET /webhooks`: List events filtered by `status`, scoped to caller's `client_id`.
+  - `GET /webhooks/:id`: Fetch current event status and delivery metadata by system `id` or `idempotency_key`, scoped to caller's `client_id`.
+  - `GET /webhooks/:id/attempts`: Fetch the chronological attempt history and audit trail, scoped to caller's `client_id`.
+- **Global Configuration Management:**
+  - Runtime readable global configuration (`timeoutLimitMs`, `maxAttempts`) fetched per cycle/hot-reloaded.
+- **Structured Logging:** Contextual JSON logs (`LOG_LEVEL`) capturing claims, dispatches, latency, attempt records, and lifecycle state transitions.
 
 ---
 
@@ -72,6 +81,7 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 | **Distributed Multi-Node Coordination**  | Out-of-Scope   | No Raft, Zookeeper, or cross-instance gossip. Concurrency safety is enforced at the database row level.      |
 | **Non-HTTP Protocols**                   | Out-of-Scope   | Supports HTTP/HTTPS webhooks only (no gRPC, WebSockets, or AMQP targets).                                    |
 | **Consumer-Side Verification SDKs**      | Deferred       | Consumers implement verification using standard HMAC SHA-256 libraries.                                      |
+| **Alternative Databases**                | Out-of-Scope   | SQLite, PostgreSQL, and MySQL only. No MongoDB, Redis, or DynamoDB support.                                  |
 
 ---
 
@@ -79,5 +89,5 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 
 - **Zero External Broker Dependency:** No Redis, Kafka, or RabbitMQ. All coordination must rely on SQL ACID semantics.
 - **Runtime & Type Safety:** Strict Node.js ≥ 24 runtime and TypeScript under `strict: true`.
-- **Delivery Semantics:** At-least-once delivery; consumers must remain idempotent.
-- **Quality Gates:** Vitest test suite with ≥80% total coverage and ≥95% coverage across critical ingestion and claiming code paths.
+- **Delivery Semantics:** At-least-once delivery; consumers must remain idempotent using the system-generated event `id`.
+- **Quality Gates:** Vitest test suite with ≥80% total coverage and ≥95% coverage across critical ingestion, authentication, unified atomic claim, backoff, and HMAC/SSRF security code paths.

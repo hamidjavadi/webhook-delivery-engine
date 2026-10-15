@@ -1,496 +1,324 @@
-# SDD — Webhook Delivery Engine
+# SDD — Webhook Retry Engine
 
-| Field          | Value                                                            |
-| :------------- | :--------------------------------------------------------------- |
-| **Status**     | Approved — Ready for Implementation                              |
-| **Owner**      | Hamid Javadi (Product Engineer) & Tech Lead (Node.js/TypeScript) |
-| **Date**       | 2026-10-16                                                       |
-| **Linked PRD** | [PRD.md](./PRD.md) (v1.0.0)                                      |
-| **Template**   | `templates/SDD-template.md` (agents.zip)                         |
+| Field            | Value                                                            |
+| ---------------- | ---------------------------------------------------------------- |
+| **Status**       | Draft (v1.0.0) — awaiting design-checkpoint approval             |
+| **Owner**        | Hamid Javadi (Product Engineer) & Tech Lead (Node.js/TypeScript) |
+| **Date**         | 2026-10-15                                                       |
+| **Version**      | 1.0.0                                                            |
+| **Template**     | `templates/SDD-template.md` (agents.zip)                         |
+| **Linked PRD**   | `PRD.md` (v1.0.0, Approved/Baseline)                             |
+| **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                           |
+| **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)                      |
+| **Linked Risks** | `risks.md`                                                       |
+| **Related ADRs** | `docs/02-design/adr/` (to be filed at design checkpoint)         |
 
 ---
 
 ## 1. Context, Goals, and Constraints
 
-### 1.1 Context and Problem Overview
+### 1.1 Context
 
-External webhook delivery is prone to silent event loss and duplicate deliveries due to transient network failures, target downtime (HTTP 5xx), timeouts, and application restarts. The existing solution lacks an embedded, lightweight, and durable retry engine. The Webhook Delivery Engine is an embeddable Node.js library and standalone HTTP service designed to provide guaranteed at-least-once delivery, idempotent ingestion, deterministic exponential backoff with full jitter, and complete per-attempt observability.
+The Webhook Retry Engine is a lightweight, embeddable Node.js (≥ 24.x) and TypeScript library and optional standalone HTTP service that delivers outgoing webhooks to external consumer endpoints with durable persistence, idempotent ingestion, bounded retries, and full attempt observability. Today, single-shot HTTP POSTs to the configured `WEBHOOK_URL` silently discard events on any transient failure (network error, HTTP 5xx, timeout, 429), re-deliver duplicates after restarts, and provide no audit trail. The engine closes these gaps without introducing external message brokers (no Redis, Kafka, or RabbitMQ — constraint C2).
 
-### 1.2 In-Scope Goals
+### 1.2 Goals (traceable to PRD §4)
 
-- **Durable Persistence & Recovery:** Enqueue events into durable relational storage (SQLite, PostgreSQL, MySQL) so that no accepted event is lost across process restarts.
-- **Idempotent Ingestion:** Deduplicate incoming events using unique client-provided IDs via atomic single-statement upsert.
-- **Unified Atomic Claiming:** Safely acquire batches of due events across concurrent workers and different database engines without double-delivery under normal operation.
-- **Cryptographic Security:** Guard ingestion using constant-time API key verification, prevent outbound Server-Side Request Forgery (SSRF), and sign outbound webhooks using HMAC SHA-256 with timestamp headers.
-- **Execution & Observability:** Execute HTTP dispatches with configurable per-attempt timeouts, log execution transitions in structured JSON, and append comprehensive audit records for every attempt.
+- **G1 — No silent loss:** every accepted event terminates in exactly one of `delivered`, `retry`, or `failed` with a complete recorded attempt history.
+- **G2 — Idempotency:** duplicate ingestion of the same (`client_id`, `idempotency_key`) pair creates exactly one delivery job, including under ≥ 1000-subject concurrent submission.
+- **G3/G4 — Reliability and concurrency safety:** bounded exponential backoff with full jitter; a single, driver-agnostic atomic claim pattern guarantees no concurrent double-claims on SQLite, PostgreSQL, and MySQL.
+- **G5 — Security:** constant-time API-key authentication on ingestion; HMAC SHA-256 signed deliveries with timestamp; strict tenant isolation (BOLA/IDOR prevention); SSRF-safe destination validation.
+- **G6/G7 — Performance and observability:** p95 ingestion latency < 50 ms (SQLite local); idle claim overhead < 10% CPU; ≥ 200 events/s sustained ingestion; per-attempt records for 100% of attempts.
+- **G8 — Quality:** Vitest coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).
 
-### 1.3 Non-Goals (Out of Scope for v1)
+### 1.3 Non-Goals (Out of Scope, per `scope.md` §3)
 
-- Exactly-once delivery semantics (engine guarantees at-least-once; downstream receivers must be idempotent).
-- Distributed message brokers (Kafka, RabbitMQ, Redis).
-- Tenant-specific retry policies (v1 enforces global configuration for timeouts and maximum attempts).
-- Manual dead-letter queue re-drive UI and real-time Prometheus/OpenTelemetry metric exporters.
-- Outbound network protocols other than HTTP/HTTPS (e.g., gRPC, AMQP, WebSocket). Note: HTTPS is strictly enforced in production; plain HTTP is restricted to local/test environments only.
+Per-tenant configuration and retry policies; admin UI/dashboard; Prometheus/OTel metrics export (structured JSON logs only); dead-letter re-drive/replay tooling; inter-event priority or ordering guarantees; multi-node scheduling coordination beyond the atomic claim guarantee; non-HTTP transports; signing schemes other than HMAC SHA-256; consumer-side verification SDK; alternative databases (MongoDB, Redis).
 
-### 1.4 Technical and Operational Constraints
+### 1.4 Constraints
 
-- **Runtime:** Node.js `>= 24.x` with TypeScript strict mode enabled (`noImplicitAny: true`, `strictNullChecks: true`).
-- **Database Support:** Pluggable engine support for SQLite (`better-sqlite3`), PostgreSQL (`pg`), and MySQL (`mysql2`).
-- **Packaging:** Dual-mode operation: embeddable TypeScript/JavaScript package (`npm` / `pnpm`) and standalone microservice container (`Dockerfile`).
-- **Concurrency & Semantics:** Single-writer constraints in SQLite handled gracefully via `WAL` mode and immediate transactions; relational row leases managed without distributed locking.
+| ID  | Constraint                        | Design Impact                                                                                                  |
+| --- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| C1  | Node.js ≥ 24.x, TypeScript strict | Native `fetch`, `crypto.timingSafeEqual`, strict null checks throughout                                        |
+| C2  | Zero heavy brokers                | Embedded SQL persistence + in-process scheduler; queue semantics implemented over relational rows              |
+| C3  | Master-rule governance            | Schema/API/technology choices finalized only at the design checkpoint with user approval                       |
+| C4  | At-least-once delivery            | Consumers deduplicate by system-generated event `id` (delivered in header and body); no exactly-once guarantee |
 
 ---
 
 ## 2. Architecture and System Boundaries
 
-The system architecture cleanly separates external ingress, database abstraction, scheduling loops, and secure outbound dispatchers.
+### 2.1 High-Level View
 
-### 2.1 ASCII Architectural Diagram
+```mermaid
+flowchart LR
+    subgraph Client["Producer / API Client"]
+        P[Authenticated caller with API key]
+    end
+    subgraph Engine["Webhook Retry Engine (embedded / HTTP service)"]
+        API[Ingestion & Query REST API]
+        AUTH[Constant-Time Auth Middleware]
+        SSRF[URL & Payload Validator]
+        ING[Idempotent Ingestion Handler]
+        CFG[Global Config Provider]
+        SCHED[Claim Scheduler]
+        WORK[Delivery Worker]
+        SIGN[HMAC Signing Module]
+        DB[("Database Adapter Interface\nSQLite / PostgreSQL / MySQL")]
+    end
+    Consumer["Webhook Consumer (external, HTTPS)"]
 
+    P -->|202 async| API --> AUTH --> SSRF --> ING --> DB
+    CFG --> SCHED
+    SCHED -->|atomic claim| DB --> WORK
+    WORK --> SIGN -->|POST + HMAC headers| Consumer
+    API -->|status / attempts, tenant-scoped| DB
 ```
-+-----------------------------------------------------------------------------------+
-|                               EXTERNAL BOUNDARY                                   |
-|                                                                                   |
-|   +-----------------------+                         +-------------------------+   |
-|   |   Ingestion Client    |                         |    Webhook Receiver     |   |
-|   |  (API Key Header)     |                         | (Verifies HMAC SHA-256) |   |
-|   +-----------+-----------+                         +------------^------------+   |
-+---------------|--------------------------------------------------|----------------+
-                | POST /api/v1/events                              | HTTP POST + HMAC
-                v                                                  |
-+------------------------------------------------------------------|----------------+
-| WEBHOOK DELIVERY ENGINE                                          |                |
-|                                                                  |                |
-|  +--------------------------+                                    |                |
-|  |     HTTP REST Server     |                                    |                |
-|  | (Fastify / Node Native)  |                                    |                |
-|  | - Auth Guard (TimingSafe)|                                    |                |
-|  | - Payload & URL Validator|                                    |                |
-|  +------------+-------------+                                    |                |
-|               |                                                  |                |
-|               v                                                  |                |
-|  +--------------------------+         +--------------------------+-------------+  |
-|  |   Event Ingestion Core   |         |            Dispatch Worker             |  |
-|  | - Idempotency Resolver   |         | - URL SSRF Inspector & DNS Resolver    |  |
-|  | - Event Persister        |         | - HMAC Request Signer (SHA-256)        |  |
-|  +------------+-------------+         | - HTTP Dispatcher (AbortSignal Timeout)|  |
-|               |                       +--------------------------^-------------+  |
-|               |                                                  |                |
-|               | Insert Pending Event                             | Due Batch      |
-|               v                                                  |                |
-|  +---------------------------------------------------------------+-------------+  |
-|  |                       Atomic Scheduler & Poller                             |  |
-|  | - Bounded Polling Loop (Timer + Jitter)                                     |  |
-|  | - Atomic Lease Acquirer (Conditional UPDATE ... WHERE status IN ('pending'))|  |
-|  | - Exponential Backoff Calculator (Full Jitter, Max Attempts Threshold)      |  |
-|  +------------------------------------+----------------------------------------+  |
-|                                       |                                           |
-|                                       v                                           |
-|  +-----------------------------------------------------------------------------+  |
-|  |                     Database Engine Abstraction (DAL)                       |  |
-|  |  [ DatabaseAdapter Interface: query, execute, transaction, atomicClaim ]   |  |
-|  +-----------------+-------------------+-------------------+-------------------+  |
-|                    |                   |                   |                      |
-+--------------------|-------------------|-------------------|----------------------+
-                     v                   v                   v
-              +--------------+    +---------------+    +---------------+
-              | SQLite (WAL) |    |  PostgreSQL   |    |     MySQL     |
-              | better-sqlite3    |  pg Driver    |    |  mysql2 Driver|
-              +--------------+    +---------------+    +---------------+
-```
+
+### 2.2 System Boundaries
+
+- **Inside the boundary:** ingestion API, authentication middleware, validation, idempotent enqueue, claim scheduler, delivery worker, backoff computation, HMAC signing, attempt audit persistence, DB adapters, migration runner, structured logging.
+- **Outside the boundary:** the producer's application (embeds or calls the engine), the external webhook consumer (verifies HMAC at its own discretion), database server administration, reverse proxies/TLS termination.
+- **Deployment modes:** (a) embedded library import within a host Node.js process; (b) standalone HTTP service via `pnpm dev`. Both share identical internal modules; only the transport layer differs.
+
+### 2.3 Data Flow Summary
+
+Ingestion path (synchronous, fast): request → auth (constant-time) → validation (schema + SSRF URL check) → single-statement atomic upsert on `UNIQUE(client_id, idempotency_key)` → `202 Accepted` with `{ id, idempotency_key, idempotent_replay }`. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
 
 ---
 
 ## 3. Modules and Responsibilities
 
-| Module                   | Responsibilities                                                                                                                         | Dependencies                             | Invariants                                                                                                                                                       |
-| :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **HttpServer & Routing** | Exposes REST endpoints (`/api/v1/events`, query APIs, health); parses payloads; coordinates response serialisation.                      | Fastify / Native HTTP, `AuthGuard`       | Rejects requests exceeding 1 MB; returns HTTP 202 for accepted ingestion.                                                                                        |
-| **AuthGuard**            | Enforces constant-time API key verification; maps keys to authenticated `client_id`s; guards internal routes.                            | Node `crypto` (`timingSafeEqual`)        | No string equality operator used on secrets; comparison latency invariant to secret content.                                                                     |
-| **IngestionManager**     | Coordinates event ingestion; ensures payload schema validation; performs atomic upsert into `webhook_events`.                            | `DatabaseAdapter`, `ValidationSchema`    | Event ID serves as the global idempotency key; duplicate submission of an existing ID short-circuits ingestion and safely returns `{ idempotent_replay: true }`. |
-| **AtomicScheduler**      | Runs periodic tick to find due events; claims batches atomically via database conditional updates; handles orphaned claim recovery.      | `DatabaseAdapter`, `ConfigManager`       | No event claimed by multiple workers simultaneously; poll loop CPU overhead < 10% when idle.                                                                     |
-| **DeliveryWorker**       | Dispatches HTTP requests; computes HMAC SHA-256 signatures; enforces per-request timeout abort signals; logs execution.                  | `HttpSigner`, `SsrfFilter`, Node `fetch` | Never transmits to forbidden IP ranges; strictly terminates requests after `timeoutLimitMs`.                                                                     |
-| **HttpSigner**           | Generates deterministic HMAC SHA-256 signatures over timestamp and payload; attaches signature headers.                                  | Node `crypto` (`createHmac`)             | Signature material format: `${timestamp}.${payload}`; timestamp matches request dispatch.                                                                        |
-| **SsrfFilter**           | Performs pre-flight URL inspection; resolves DNS hostnames; blocks loopback, private RFC 1918, link-local, and cloud metadata addresses. | Node `dns/promises`, Node `net`          | Unsafe destination hosts rejected before establishing TCP/TLS connection.                                                                                        |
-| **BackoffEngine**        | Calculates retry timestamps using bounded exponential backoff with full randomized jitter; evaluates terminal exhaustion.                | Config parameters                        | `delay = random(0, min(base * 2^(attempt - 1), capMs))`; retries cease at `maxAttempts`.                                                                         |
-| **DatabaseAdapter**      | Abstracts dialect-specific queries, connections, migrations, and atomic conditional update statements.                                   | `better-sqlite3`, `pg`, `mysql2`         | All SQL executed via parameterized statements; zero SQL string interpolation.                                                                                    |
+| Module                                 | Responsibility                                                                                                                                                                                                                                           | Key Dependencies                 |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
+| **Persistence Adapters** (WBS 2.3–2.5) | One `DatabaseAdapter` implementation per dialect — `better-sqlite3` (WAL, `busy_timeout=5000`, `BEGIN IMMEDIATE`), `pg` (pooling, `ON CONFLICT DO NOTHING`), `mysql2` (pooling, `INSERT IGNORE`). All statements parameterized (NFR-S4).                 | Domain Types, Migration Runner   |
+| **Migration Runner** (WBS 2.2)         | Idempotent, in-process DDL migrations across all three dialects; no external CLI. Version table records applied migrations.                                                                                                                              | Adapters                         |
+| **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
+| **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
+| **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
+| **Claim Scheduler** (WBS 2.6–2.7)      | Poll loop: batch-size atomic conditional claim of due rows (including stale-lease recovery); emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
+| **Delivery Worker** (WBS 5.x)          | Per-event dispatch with `timeoutLimitMs` abort; outcome classification (2xx success; all else retryable per FR-17/A3); writes attempt rows; applies status transitions (FR-6).                                                                           | Scheduler, HMAC Module, Adapters |
+| **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
+| **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
+| **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
+| **Structured Logger** (WBS 6.x)        | JSON lifecycle logging at `LOG_LEVEL`; mandatory redaction of `Authorization`, `x-api-key`, HMAC secret, and payload bodies (risk R6).                                                                                                                   | None                             |
+
+High cohesion / low coupling: every module depends only on the `DatabaseAdapter` and `EngineConfig` contracts; no module imports a concrete driver directly. This isolates dialect quirks (risk R7) behind the adapter seam.
 
 ---
 
 ## 4. Data Model and Migration
 
-### 4.1 Table: `webhook_events`
+### 4.1 `webhook_events` — one row per unique event (idempotency anchor)
 
-Stores master event records and acts as the idempotency anchor.
+| Column                      | Canonical Type      | Constraints / Notes                                                                |
+| --------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
+| `id`                        | UUIDv4 (PK)         | System-generated, cryptographically random, non-enumerable; never client-supplied. |
+| `idempotency_key`           | TEXT                | Client-supplied; uniqueness scoped per client.                                     |
+| `client_id`                 | TEXT                | Resolved from authenticated caller; part of `UNIQUE(client_id, idempotency_key)`.  |
+| `destination_url`           | TEXT                | Fully qualified HTTPS URL, SSRF-validated at ingestion.                            |
+| `payload`                   | TEXT (JSON)         | Delivered body.                                                                    |
+| `status`                    | TEXT enum           | `pending` \| `processing` \| `delivered` \| `retry` \| `failed`.                   |
+| `attempt_count`             | INTEGER, default 0  | Number of dispatches made.                                                         |
+| `next_retry_at`             | TIMESTAMP, nullable | Indexed for claim query; NULL for fresh `pending` rows.                            |
+| `locked_at`                 | TIMESTAMP, nullable | Lease acquisition time.                                                            |
+| `locked_by`                 | TEXT, nullable      | Worker identifier holding the lease.                                               |
+| `created_at` / `updated_at` | TIMESTAMP           | Row timestamps.                                                                    |
 
-| Column Name       | Data Type (SQLite / Postgres / MySQL)         | Constraints                   | Description                                                                                                                                                                                                                                                         |
-| :---------------- | :-------------------------------------------- | :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`              | `VARCHAR(64)` / `VARCHAR(64)` / `VARCHAR(64)` | PRIMARY KEY, NOT NULL         | Primary event identifier, acting as client-supplied idempotency key (deduplication anchor per tenant).                                                                                                                                                              |
-| `client_id`       | `VARCHAR(64)` / `VARCHAR(64)` / `VARCHAR(64)` | NOT NULL                      | Tenant / caller identity extracted from API key.                                                                                                                                                                                                                    |
-| `destination_url` | `TEXT` / `TEXT` / `TEXT`                      | NOT NULL                      | Validated HTTPS/HTTP target endpoint URL.                                                                                                                                                                                                                           |
-| `payload`         | `TEXT` / `TEXT` / `TEXT`                      | NOT NULL                      | Raw event payload (JSON string).                                                                                                                                                                                                                                    |
-| `status`          | `VARCHAR(20)` / `VARCHAR(20)` / `VARCHAR(20)` | NOT NULL, DEFAULT `'pending'` | Lifecycle state: `'pending'` (newly ingested, never attempted), `'processing'` (actively leased by a worker), `'retry'` (failed an attempt and scheduled for backoff retry), `'delivered'` (terminal success), `'failed'` (terminal exhaustion after max attempts). |
-| `attempt_count`   | `INTEGER` / `INTEGER` / `INT`                 | NOT NULL, DEFAULT `0`         | Number of outbound delivery attempts executed.                                                                                                                                                                                                                      |
-| `next_retry_at`   | `INTEGER` (epoch ms) / `BIGINT` / `BIGINT`    | NULLABLE                      | Epoch timestamp in milliseconds for next scheduled run.                                                                                                                                                                                                             |
-| `locked_at`       | `INTEGER` (epoch ms) / `BIGINT` / `BIGINT`    | NULLABLE                      | Timestamp when worker lease was granted.                                                                                                                                                                                                                            |
-| `locked_by`       | `VARCHAR(64)` / `VARCHAR(64)` / `VARCHAR(64)` | NULLABLE                      | Unique worker identifier holding current lease.                                                                                                                                                                                                                     |
-| `created_at`      | `INTEGER` (epoch ms) / `BIGINT` / `BIGINT`    | NOT NULL                      | Event ingestion timestamp.                                                                                                                                                                                                                                          |
-| `updated_at`      | `INTEGER` (epoch ms) / `BIGINT` / `BIGINT`    | NOT NULL                      | Record last modification timestamp.                                                                                                                                                                                                                                 |
+Indexes: PK on `id`; `UNIQUE(client_id, idempotency_key)` (idempotency anchor); `idx_webhook_events_due (status, next_retry_at)` (claim query).
 
-**Indexes:**
+### 4.2 `webhook_event_attempts` — append-only audit trail
 
-- `idx_webhook_events_due`: `(status, next_retry_at)` — Claim worker index filtering eligible records.
-- `idx_webhook_events_stale`: `(status, locked_at)` — Orphaned lease recovery index.
-- `idx_webhook_events_client`: `(client_id, created_at)` — Multi-tenant lookup and reporting index.
+| Column             | Type      | Notes                                                     |
+| ------------------ | --------- | --------------------------------------------------------- |
+| `id`               | PK        | INTEGER or UUID per dialect convention.                   |
+| `event_id`         | TEXT      | NOT NULL, FK → `webhook_events.id` **ON DELETE CASCADE**. |
+| `attempt_number`   | INTEGER   | 1-based ordinal.                                          |
+| `attempted_at`     | TIMESTAMP | Attempt start.                                            |
+| `status_code`      | INTEGER   | NULL on network error/timeout.                            |
+| `response_snippet` | TEXT      | Bounded ≤ 1 KB, contractually secret-free (A6).           |
+| `error`            | TEXT      | Error text (e.g., `timeout`, `ECONNREFUSED`).             |
+| `latency_ms`       | INTEGER   | Round-trip duration.                                      |
+| `outcome`          | TEXT enum | `success` \| `retry_scheduled` \| `exhausted`.            |
 
-### 4.2 Table: `webhook_event_attempts`
+Index: `idx_attempts_event (event_id, attempt_number)`.
 
-Append-only immutable audit trail recording every delivery dispatch.
+### 4.3 Dialect Mapping and Validation
 
-| Column Name        | Data Type (SQLite / Postgres / MySQL)                                                               | Constraints                                           | Description                                                      |
-| :----------------- | :-------------------------------------------------------------------------------------------------- | :---------------------------------------------------- | :--------------------------------------------------------------- |
-| `id`               | `INTEGER PRIMARY KEY AUTOINCREMENT` / `BIGSERIAL PRIMARY KEY` / `BIGINT AUTO_INCREMENT PRIMARY KEY` | PRIMARY KEY, NOT NULL                                 | Unique sequential audit identifier.                              |
-| `event_id`         | `VARCHAR(64)` / `VARCHAR(64)` / `VARCHAR(64)`                                                       | NOT NULL, FK → `webhook_events(id)` ON DELETE CASCADE | Reference to parent event.                                       |
-| `attempt_number`   | `INTEGER` / `INTEGER` / `INT`                                                                       | NOT NULL                                              | 1-based attempt ordinal.                                         |
-| `attempted_at`     | `INTEGER` (epoch ms) / `BIGINT` / `BIGINT`                                                          | NOT NULL                                              | Timestamp when outbound HTTP dispatch started.                   |
-| `status_code`      | `INTEGER` / `INTEGER` / `INT`                                                                       | NULLABLE                                              | HTTP status code received (null on network timeout/drop).        |
-| `response_snippet` | `VARCHAR(1024)` / `VARCHAR(1024)` / `VARCHAR(1024)`                                                 | NULLABLE                                              | Truncated response body (bounded at <= 1024 bytes).              |
-| `error`            | `TEXT` / `TEXT` / `TEXT`                                                                            | NULLABLE                                              | Error message, DNS failure, or abort timeout description.        |
-| `latency_ms`       | `INTEGER` / `INTEGER` / `INT`                                                                       | NULLABLE                                              | HTTP round-trip dispatch latency in milliseconds.                |
-| `outcome`          | `VARCHAR(20)` / `VARCHAR(20)` / `VARCHAR(20)`                                                       | NOT NULL                                              | Attempt result: `'success'`, `'retry_scheduled'`, `'exhausted'`. |
+- **SQLite:** TEXT ids, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
+- **PostgreSQL:** `UUID`/`TEXT` ids, `TIMESTAMPTZ`, upsert via `INSERT ... ON CONFLICT (client_id, idempotency_key) DO NOTHING`.
+- **MySQL:** `CHAR(36)` UUIDs, `DATETIME(3)`, upsert via `INSERT IGNORE`; MySQL 8.0+ floor enforced if conditional-update edge cases emerge (R2 contingency).
+- Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
 
-**Indexes:**
+### 4.4 Migration Policy
 
-- `idx_attempts_event`: `(event_id, attempt_number)` — Fast attempt history resolution per event.
+Migrations are hand-written SQL versioned in-repo, applied by the embedded idempotent migration runner on engine startup before the scheduler starts. Forward-only; no destructive auto-migrations. A schema change requires an ADR (see §10).
 
-### 4.3 Migration Strategy Across Dialects
+### 4.5 Sensitive Data and Retention
 
-A lightweight, transactional schema runner executes versioned raw SQL scripts against the active database:
-
-- **SQLite:** WAL mode (`PRAGMA journal_mode = WAL;`) and busy timeout (`PRAGMA busy_timeout = 5000;`) enabled at connection initialization. Foreign keys enforced via `PRAGMA foreign_keys = ON;`.
-- **PostgreSQL:** Executed inside explicit transactions (`BEGIN; ... COMMIT;`). Uses standard `BIGINT` epoch timestamps to maintain integer arithmetic consistency across all drivers.
-- **MySQL:** Tables declared with `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`. Foreign keys reference indexed columns.
+Secrets (`API_KEY`, `HMAC_SECRET`, DB credentials) live only in environment configuration, never in the database, logs, or VCS. Payloads and response snippets are stored for the lifetime of the event row; retention beyond that is operator-managed (v1 provides no automatic purge — consistent with the out-of-scope DLQ/re-drive deferral).
 
 ---
 
 ## 5. API / Event Contracts
 
-### 5.1 Ingestion API
+Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x-api-key` (FR-7). Versioning: path-prefix reserved (`/v1`) for future breaking changes; v1 endpoints unversioned under the configured `PORT`.
 
-**Endpoint:** `POST /api/v1/events`  
-**Headers:**
+### 5.1 `POST /webhooks` — Idempotent Ingestion
 
-- `Authorization: Bearer <API_KEY>`
-- `Content-Type: application/json`
+- **Request body:** `{ "idempotency_key": string (required), "payload": JSON (required), "destination_url": string (optional; defaults to configured WEBHOOK_URL) }`. The client MUST NOT supply `id` (FR-18).
+- **Success:** `202 Accepted` with `{ "id": <system UUID>, "idempotency_key": <key>, "idempotent_replay": true|false, "status": "pending" }` (FR-2).
+- **Errors:** `401 Unauthorized` (missing/invalid key, FR-9); `400 Bad Request` (schema violation); `422 Unprocessable Entity` (SSRF-blocked URL); `429 Too Many Requests` (fixed-window rate limit, NFR-S5); `503` on storage unavailability (NFR-R3 — scheduler/host never crashes).
+- **Idempotency:** enforced by a single-statement atomic upsert against `UNIQUE(client_id, idempotency_key)`; concurrent duplicate submissions (≥ 1000 parallel, AC2) yield exactly one row and `idempotent_replay: true` on replays.
 
-**Request Payload:**
+### 5.2 `GET /webhooks` — List Events
 
-```json
-{
-  "id": "evt_01JAZ683C72A99BXN4",
-  "destination_url": "https://consumer.example.com/webhooks",
-  "payload": { "event": "order.created", "amount": 4500 }
-}
-```
+- **Query:** `status` (optional filter), cursor pagination.
+- **Success:** `200` with event summaries, strictly scoped `WHERE client_id = :authClientId` (NFR-S7).
+- **Errors:** `401`, `400` (invalid filter).
 
-**Responses:**
+### 5.3 `GET /webhooks/:id` — Event Status
 
-- `202 Accepted` (New event ingested):
-  ```json
-  {
-    "status": "accepted",
-    "id": "evt_01JAZ683C72A99BXN4",
-    "idempotent_replay": false,
-    "created_at": 1729000000000
-  }
-  ```
-- `202 Accepted` (Duplicate ID submitted — Idempotent Replay):
-  ```json
-  {
-    "status": "accepted",
-    "id": "evt_01JAZ683C72A99BXN4",
-    "idempotent_replay": true,
-    "created_at": 1729000000000
-  }
-  ```
-- `400 Bad Request` (Invalid URL, SSRF rejection, or schema validation error):
-  ```json
-  {
-    "error": "BAD_REQUEST",
-    "message": "destination_url resolves to disallowed private network address"
-  }
-  ```
-- `401 Unauthorized` (Missing or invalid API key):
-  ```json
-  {
-    "error": "UNAUTHORIZED",
-    "message": "Invalid or missing API key"
-  }
-  ```
+- Addressable by system `id` or `idempotency_key`; query carries `AND client_id = :authClientId`; any cross-tenant lookup returns **`404 Not Found`** (never `403`) to prevent metadata leakage/BOLA (FR-19, NFR-S7).
 
-### 5.2 Status and History Query Endpoints
+### 5.4 `GET /webhooks/:id/attempts` — Attempt History
 
-- `GET /api/v1/events/:id`  
-  Returns master record status, current retry count, next retry timestamp, and summary metadata.
-- `GET /api/v1/events?status=<status>&limit=<limit>&offset=<offset>`  
-  Lists events filtered by `status` with pagination via `limit` (page size, default 50) and `offset` (zero-based).
-- `GET /api/v1/events/:id/attempts`  
-  Returns full audit trail list of all attempts from `webhook_event_attempts` ordered by `attempt_number ASC`.
+- Chronological attempt rows (number, timestamp, status code/error, latency, outcome) for the tenant-scoped event. Errors: `401`, `404` (cross-tenant or unknown id).
 
-### 5.3 Outbound HMAC SHA-256 Delivery Signature Specification
+### 5.5 Outbound Delivery Contract (event egress)
 
-Every HTTP POST dispatch sends the raw payload accompanied by cryptographic verification headers:
-
-- `x-webhook-signature`: `sha256=<hex_digest>`
-- `x-webhook-timestamp`: `<epoch_seconds>`
-- `x-webhook-id`: `<event_id>`
-
-**Signing Algorithm:**
-
-1. Generate current epoch timestamp in seconds: `ts = Math.floor(Date.now() / 1000).toString()`.
-2. Construct signature material string: `signed_payload = "${ts}.${raw_body}"`.
-3. Compute HMAC SHA-256: `digest = crypto.createHmac('sha256', HMAC_SECRET).update(signed_payload).digest('hex')`.
-4. Transmit header: `x-webhook-signature: sha256=${digest}` and `x-webhook-timestamp: ${ts}`.
+- `POST` to `destination_url` with headers: `x-webhook-signature: sha256=<hex HMAC-SHA256(secret, timestamp + '.' + body)>`, `x-webhook-timestamp: <unix seconds>`, `x-webhook-event-id: <system id>`, and the event `id` embedded in the body (FR-11/FR-12, A2). No request is ever dispatched unsigned (FR-13).
 
 ---
 
 ## 6. Key Flows
 
-### 6.1 End-to-End Ingestion and Delivery Lifecycle
+### 6.1 Idempotent Ingestion Flow
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Producer as Event Producer
-    participant API as Ingestion API (HTTP)
-    participant Auth as AuthGuard
-    participant DB as Relational Database
-    participant Sched as Atomic Scheduler
-    participant Worker as Delivery Worker
-    actor Receiver as Webhook Receiver
+    actor Client
+    participant API as Ingestion API
+    participant Auth as Auth Middleware
+    participant Val as Validator/SSRF Guard
+    participant DB as Database Adapter
+    Client->>API: POST /webhooks {idempotency_key, payload}
+    API->>Auth: Verify API key (timingSafeEqual)
+    Auth-->>API: client_id resolved / 401
+    API->>Val: Validate payload + destination URL
+    Val-->>API: OK / 400 / 422
+    API->>DB: Atomic upsert ON CONFLICT(client_id, idempotency_key) DO NOTHING
+    DB-->>API: inserted? + system id
+    API-->>Client: 202 {id, idempotency_key, idempotent_replay}
+```
 
-    Producer->>API: POST /api/v1/events (with API Key & Payload)
-    API->>Auth: Verify API Key (Constant-Time)
-    alt Invalid Key
-        Auth-->>Producer: 401 Unauthorized
-    else Valid Key
-        Auth-->>API: client_id authenticated
-        API->>DB: Atomic Upsert (INSERT ... ON CONFLICT DO NOTHING)
-        alt First Ingestion
-            DB-->>API: Row inserted (affected_rows = 1)
-            API-->>Producer: 202 Accepted { idempotent_replay: false }
-        else Duplicate ID
-            DB-->>API: Conflict ignored (affected_rows = 0)
-            API-->>Producer: 202 Accepted { idempotent_replay: true }
-        end
-    end
+### 6.2 Claim, Deliver, and Retry Flow
 
-    loop Periodic Polling Tick
-        Sched->>DB: Atomic Conditional Claim (UPDATE due rows to 'processing')
-        DB-->>Sched: Return claimed rows for workerId
-        loop For each claimed event
-            Sched->>Worker: Dispatch event
-            Worker->>Worker: SSRF & Host Validation
-            Worker->>Worker: Generate HMAC SHA-256 Signature
-            Worker->>Receiver: HTTP POST (with timeoutLimitMs)
-            alt Delivery Succeeded (HTTP 2xx)
-                Receiver-->>Worker: HTTP 200 OK
-                Worker->>DB: Update event (status='delivered') & Append attempt ('success')
-            else Delivery Failed (HTTP 4xx/5xx/Timeout)
-                Receiver--xWorker: HTTP Error / Timeout
-                alt attempt_count < maxAttempts
-                    Worker->>Worker: Calculate Exponential Backoff + Jitter
-                    Worker->>DB: Update event (status='retry', next_retry_at) & Append attempt ('retry_scheduled')
-                else attempt_count >= maxAttempts
-                    Worker->>DB: Update event (status='failed') & Append attempt ('exhausted')
-                end
-            end
-        end
+```mermaid
+sequenceDiagram
+    participant Sched as Claim Scheduler
+    participant DB as Database Adapter
+    participant Work as Delivery Worker
+    participant HMAC as HMAC Module
+    participant Cons as Webhook Consumer
+    Sched->>DB: Conditional UPDATE claim (due rows -> processing, locked_at, locked_by)
+    DB-->>Sched: batch of claimed events (exactly-once per claim)
+    Sched->>Work: dispatch(event)
+    Work->>HMAC: sign(timestamp + '.' + body)
+    Work->>Cons: POST + x-webhook-signature / x-webhook-timestamp
+    Cons-->>Work: HTTP response (or timeout)
+    Work->>DB: Write attempt row (status_code, latency, outcome)
+    alt 2xx
+        Work->>DB: status = delivered
+    else failure, attempts < maxAttempts
+        Work->>DB: status = retry, next_retry_at = now + random(0, min(1000*2^(n-1), 60000))
+    else attempts >= maxAttempts
+        Work->>DB: status = failed, last attempt outcome = exhausted
     end
 ```
 
-### 6.2 Atomic Conditional Claim Pattern Across Dialects
+### 6.3 Stale-Lease Recovery Flow (FR-5, AC9)
 
-To eliminate race conditions and avoid heavy external locks, the engine utilizes an atomic conditional update lease pattern. A worker updates eligible rows and sets `locked_by` to its unique worker ID (`worker_uuid`).
+On each poll cycle the scheduler additionally claims rows where `status = 'processing' AND locked_at < now - staleThreshold`, resetting them to `retry` with a fresh claim; this recovers worker crashes and bounds the at-least-once duplicate window. The final stale-claim mechanism (lease heartbeat vs. reset-on-start) is ratified at the design checkpoint and recorded as an ADR.
 
-**Eligibility Predicate:**
-
-```sql
-(status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= :now))
-OR
-(status = 'processing' AND locked_at <= :stale_cutoff)
-```
-
-**Dialect Implementations:**
-
-1. **PostgreSQL:**
-   ```sql
-   UPDATE webhook_events
-   SET status = 'processing',
-       locked_at = :now,
-       locked_by = :worker_id,
-       updated_at = :now
-   WHERE id IN (
-     SELECT id FROM webhook_events
-     WHERE (status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= :now))
-        OR (status = 'processing' AND locked_at <= :stale_cutoff)
-     ORDER BY next_retry_at ASC NULLS FIRST
-     LIMIT :batch_size
-     FOR UPDATE SKIP LOCKED
-   )
-   RETURNING *;
-   ```
-2. **SQLite:**
-   Executed inside an immediate transaction (`BEGIN IMMEDIATE`):
-   ```sql
-   UPDATE webhook_events
-   SET status = 'processing',
-       locked_at = :now,
-       locked_by = :worker_id,
-       updated_at = :now
-   WHERE id IN (
-     SELECT id FROM webhook_events
-     WHERE (status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= :now))
-        OR (status = 'processing' AND locked_at <= :stale_cutoff)
-     ORDER BY CASE WHEN next_retry_at IS NULL THEN 0 ELSE 1 END, next_retry_at ASC
-     LIMIT :batch_size
-   );
-   -- Followed immediately by:
-   SELECT * FROM webhook_events WHERE locked_by = :worker_id AND status = 'processing';
-   ```
-3. **MySQL (8.0+):**
-   ```sql
-   UPDATE webhook_events
-   SET status = 'processing',
-       locked_at = :now,
-       locked_by = :worker_id,
-       updated_at = :now
-   WHERE id IN (
-     SELECT id FROM (
-       SELECT id FROM webhook_events
-       WHERE (status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= :now))
-          OR (status = 'processing' AND locked_at <= :stale_cutoff)
-       ORDER BY next_retry_at ASC
-       LIMIT :batch_size
-       FOR UPDATE SKIP LOCKED
-     ) AS t
-   );
-   -- Followed by reading assigned rows:
-   SELECT * FROM webhook_events WHERE locked_by = :worker_id AND locked_at = :now;
-   ```
+**Invariants:** no two live workers hold a claim on the same event (AC3); no attempt beyond `maxAttempts`; no retries after a terminal state (FR-16); every attempt is recorded before the next status transition (AC10).
 
 ---
 
 ## 7. Security, Privacy, and Failure Modes
 
-### 7.1 Constant-Time API Key Authentication
+### 7.1 Security and Privacy
 
-All protected ingress routes validate client credentials against configured keys. To defend against side-channel timing attacks:
+- **Authentication (NFR-S1):** constant-time comparison via `crypto.timingSafeEqual` over equal-length SHA-256 pre-hashed buffers; no early exits or length leaks (mitigates R3); `401` on all missing/invalid credentials (AC7, AC12).
+- **Delivery integrity and replay defense (NFR-S2):** HMAC SHA-256 over `timestamp.body` with the configured secret; timestamp material defeats replay of stale captures.
+- **Tenant isolation (NFR-S7):** non-enumerable UUIDv4 ids plus mandatory `client_id` scoping on every read; cross-tenant attempts return `404` (BOLA/IDOR prevention).
+- **SSRF protection (NFR-S6, AC14):** URL allow-policy enforcing HTTPS, resolving and rejecting loopback, RFC 1918, link-local, and `169.254.169.254` metadata targets before any socket is opened.
+- **SQL safety (NFR-S4):** parameterized/prepared statements exclusively across all three adapters.
+- **Secret hygiene (NFR-S3):** env-only secrets; structured logger redactors for `Authorization`, `x-api-key`, HMAC secret, and payloads (mitigates R6).
+- **Rate limiting (NFR-S5):** basic fixed window on ingestion protects the embedded DB.
+- **Privacy:** payloads are operator-supplied business data; storage is local to the configured database; no third-party data flows.
 
-1. The incoming key and expected key are hashed using SHA-256 to ensure identical buffer lengths:
-   `hashA = crypto.createHash('sha256').update(incomingKey).digest()`
-   `hashB = crypto.createHash('sha256').update(expectedKey).digest()`
-2. Comparison is performed strictly via `crypto.timingSafeEqual(hashA, hashB)`.
-3. Early string equality checks (`===`) are explicitly prohibited.
+### 7.2 Failure Modes and Recovery
 
-### 7.2 Outbound SSRF Mitigation Policy
-
-Before opening a network connection to `destination_url`:
-
-1. Parse URL protocol; enforce strict `https:` in production environments (`http:` is rejected by default and only permitted when explicitly enabled via `ALLOW_INSECURE_HTTP=true` in local/test configurations).
-2. Perform DNS lookup via `dns.promises.lookup(host, { all: true })`.
-3. Validate all resolved IP addresses against blacklisted CIDR blocks:
-   - Loopback: `127.0.0.0/8`, `::1`
-   - RFC 1918 Private ranges: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
-   - Link-local: `169.254.0.0/16`, `fe80::/10`
-   - Cloud Metadata Services: `169.254.169.254`, `metadata.google.internal`
-4. If an address resolves to a restricted block, the delivery immediately aborts with error code `ERR_SSRF_BLOCKED`, recording the attempt as a failure without transmitting any bytes.
-
-### 7.3 Detailed Failure Modes & Recovery Matrix
-
-| Failure Mode                             | Direct Impact                                                 | Detection Mechanism                                                                   | Automated Mitigation / Recovery                                                                                 |
-| :--------------------------------------- | :------------------------------------------------------------ | :------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------- |
-| **Worker Crash mid-dispatch**            | Event row left stranded in `status = 'processing'`.           | Scheduler detects `status = 'processing'` where `locked_at < (now - STALE_LEASE_MS)`. | Stale-lease reclamation query automatically resets lock and reverts event to `'retry'` status.                  |
-| **Target Webhook Slow / Hanging**        | Dispatch worker thread blocked waiting for response socket.   | `AbortSignal.timeout(timeoutLimitMs)` triggers abort signal.                          | HTTP client tears down connection, records `error = 'ETIMEDOUT'`, and records attempt with duration.            |
-| **Database Disconnect (Transient)**      | Scheduler loop or ingestion endpoint cannot persist state.    | DB connection pool emits connection error event / query throws.                       | Circuit breaker pauses scheduler loop with backoff; returns 503 on ingestion without crashing host.             |
-| **SQLite Busy (`SQLITE_BUSY`)**          | Concurrency contention between write transaction and pollers. | `SqliteError: database is locked` caught by adapter.                                  | Configured `busy_timeout = 5000ms`, `WAL` mode active, and exponential backoff retry on write lock acquisition. |
-| **Receiver 5xx / 429 Throttle**          | Downstream receiver temporarily overloaded or failing.        | HTTP status returned in range 500–599 or 429.                                         | Event marked for retry; backoff engine adds randomized exponential jitter to prevent thundering herd.           |
-| **Receiver Permanent Failure (404/410)** | Target webhook URL decommissioned or non-existent.            | HTTP status returned 404 or 410.                                                      | Evaluated against retry policy; retried up to `maxAttempts` before being safely recorded as `exhausted`.        |
+| Failure                            | Behavior                                                                                                          | Requirement  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------ |
+| Consumer 5xx / network error / 429 | Attempt recorded (`error` or `status_code`), backoff with full jitter applied, `retry` scheduled                  | FR-6, FR-14  |
+| Delivery exceeds `timeoutLimitMs`  | Request aborted, attempt row with `error: timeout`, retry scheduled                                               | AC6          |
+| Worker crash mid-dispatch          | Stale lease reclaimed after threshold; delivery may repeat (at-least-once, C4)                                    | FR-5, AC9    |
+| Process restart                    | All events/attempts/config persist; scheduler resumes; in-flight rows reclaimed                                   | AC11, NFR-R1 |
+| DB unavailability                  | Scheduler backs off and logs; host process remains healthy; ingestion returns `503`                               | NFR-R3       |
+| SQLite write contention            | `BEGIN IMMEDIATE` + WAL + `busy_timeout`; throttled claim frequency; logged guidance to migrate to Postgres/MySQL | R1           |
+| Config misvalidation               | Safe fallback to defaults (base 1 s, cap 60 s, full jitter) on startup validation failure                         | R5           |
 
 ---
 
 ## 8. Observability, Performance, and Accessibility
 
-### 8.1 JSON Structured Logging Format
+- **Observability (G7):** structured JSON logs (`LOG_LEVEL`) for every lifecycle transition — claim, dispatch, attempt outcome, state change, recovery sweep. Full attempt audit queryable via `GET /webhooks/:id/attempts`. Log-based observability only in v1; Prometheus/OTel export deferred to v1.1.
+- **Performance (G6, NFR-P1–P4):** p95 ingestion < 50 ms on local SQLite; claim poll interval configurable with idle CPU < 10%; batch claiming (default batch size 10) amortizes transaction overhead; ≥ 200 events/s sustained ingestion target.
+- **Compatibility and accessibility:** backend library — UI accessibility standards do not apply; accessibility of concern is API ergonomics (consistent error shapes, documented contracts). Compatibility: Node ≥ 24.x, TypeScript strict, all three DB engines through one interface (NFR-C2/C3), embedded and standalone modes (NFR-C4).
 
-All system events, audit records, and operational errors output machine-readable single-line JSON logs to `stdout`/`stderr` adhering to the following schema:
-
-```json
-{
-  "timestamp": "2026-10-16T12:00:00.123Z",
-  "level": "INFO",
-  "service": "webhook-delivery-engine",
-  "event": "delivery_attempt_completed",
-  "eventId": "evt_01JAZ683C72A99BXN4",
-  "clientId": "client_default_tenant",
-  "attemptNumber": 2,
-  "statusCode": 503,
-  "latencyMs": 245,
-  "outcome": "retry_scheduled",
-  "nextRetryAt": 1729000004500,
-  "workerId": "worker-node-1-pid-4512"
-}
-```
-
-_Sanitization Rule:_ Sensitive headers (`Authorization`, `x-api-key`), HMAC keys, and full unescaped request payloads are automatically stripped from log outputs.
-
-### 8.2 Performance Targets and Service Levels
-
-- **Ingestion Latency (p95):** `< 50 ms` for local SQLite instances, `< 75 ms` for networked PostgreSQL/MySQL instances under nominal load.
-- **Ingestion Sustained Throughput:** `≥ 200 events/second` sustained on SQLite in WAL mode.
-- **Scheduler Idle Overhead:** `< 10% CPU` utilization during empty poll ticks.
-- **Batch Processing Throughput:** Scalable batch claims of 10–50 events per cycle with round-trip lease resolution `< 30 ms`.
-
-### 8.3 Accessibility
-
-As a backend headless service / developer library without a graphical user interface, direct WCAG accessibility requirements are **Not Applicable (N/A)**. Error messages and log outputs follow structured UTF-8 text standards.
+---
 
 ## 9. Testing and Deployment
 
-### 9.1 Vitest Test Matrix
+### 9.1 Testing Strategy
 
-The test suite enforces rigorous verification using Vitest across four dedicated testing quadrants:
+| Layer              | Tooling                        | Coverage target                                                                     |
+| ------------------ | ------------------------------ | ----------------------------------------------------------------------------------- |
+| Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, timing-safe auth     |
+| Integration        | Vitest + mock endpoints        | Ingestion idempotency (AC1/AC2), retry lifecycle (AC4–AC6), restart recovery (AC11) |
+| Per-DB concurrency | Vitest × SQLite/Postgres/MySQL | ≥ 100 parallel claims per engine, zero double-claims (AC3)                          |
+| Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
+| Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
 
-| Category                 | Scope & Objective                                                                                                 | Environment / Drivers                                  | Target Gate                                   |
-| :----------------------- | :---------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------- | :-------------------------------------------- |
-| **Unit Tests**           | Backoff math (full jitter distributions), HMAC signing calculation, SSRF CIDR filters, constant-time comparisons. | In-memory mock timers, Node native crypto              | 100% logic coverage, 0 ms network delay       |
-| **Integration Tests**    | Ingestion REST API, duplicate idempotency checks, lease transitions (`pending -> processing -> delivered/retry`). | Ephemeral SQLite, Testcontainers PostgreSQL / MySQL    | Complete lifecycle verification               |
-| **Multi-DB Concurrency** | Race condition tests: 10 parallel worker threads attempting to claim identical pools of 100 due events.           | SQLite (`WAL`), PostgreSQL, MySQL                      | Exactly 0 double-claims; all events processed |
-| **Fault Injection**      | Aborted connections, forced process termination mid-claim, synthetic 10-second target latency timeouts.           | Mock HTTP servers with intentional delays and failures | 100% orphaned claim recovery verification     |
+Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, and HMAC paths (G8, AC13). Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
-### 9.2 Packaging and Deployment Strategy
+### 9.2 Migration and Deployment
 
-- **NPM / Library Packaging:** Compiled to clean ECMAScript Modules (ESM) and CommonJS (CJS) with bundled TypeScript declarations (`dist/index.d.ts`). Exposes `createWebhookEngine()`, database adapters, and Fastify plugin bindings.
-- **Standalone Container Packaging:** Multi-stage distroless `Dockerfile`:
-  1. _Builder Stage:_ Node 24 Alpine, installs dependencies via `pnpm`, builds TypeScript source.
-  2. _Runner Stage:_ Node 24 distroless/minimal image, runs unprivileged non-root user (`USER node`), exposes port `3000`.
-- **Zero-Downtime Migration:** Schema migrations are strictly backward-compatible. Additive columns and indexes run safely on live databases prior to deploying updated application binaries.
+- Deployment is a library import or a single-process HTTP service (`pnpm dev` / built output); migrations apply automatically on startup before the scheduler activates.
+- Environment prerequisites (D4): `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_PATH`, `WEBHOOK_URL`, `API_KEY`, `HMAC_SECRET`, DB connection settings.
+- Rollback strategy: forward-only migrations; rollback is a previous release binary against a compatible schema (additive-only changes in v1.x).
+- WBS traceability: design covers WBS 1.0–8.0; the implementation phase begins only after design-checkpoint approval per master rules.
 
 ---
 
 ## 10. Options, Trade-offs, and Related ADRs
 
-### 10.1 Architectural Decision Options & Trade-offs
+| Decision               | Selected Option                                                                              | Rejected Alternatives & Rationale                                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Queue substrate        | Relational tables + atomic conditional `UPDATE` claim                                        | External broker (Redis/Kafka/RabbitMQ) — violates lightweight-embeddable constraint C2 and adds operational surface    |
+| Claim primitive        | Unified conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows | `SELECT ... FOR UPDATE SKIP LOCKED` — not portable to SQLite and MySQL < 8.0 (risk R2)                                 |
+| Delivery semantics     | At-least-once with consumer deduplication by system `id`                                     | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)           |
+| Retry policy           | Bounded exponential backoff with **full jitter**                                             | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                             |
+| Non-2xx classification | All non-2xx (incl. 429 and other 4xx) retryable until `maxAttempts`                          | Per-code permanent-fail policy (e.g., 410) — deferred; design-checkpoint decision recorded here if ratified (FR-17/A3) |
+| Stale-lease recovery   | Scheduler-driven stale-claim sweep each poll cycle                                           | Heartbeat-only leases — extra write amplification; mechanism finalized at design checkpoint (ADR required)             |
+| Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 
-| Decision Area               | Options Considered                                                                      | Selected Architecture                              | Trade-off Rationale                                                                                                               |
-| :-------------------------- | :-------------------------------------------------------------------------------------- | :------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------- |
-| **Persistence Engine**      | A. In-Memory Queue<br>B. Redis / BullMQ<br>C. Embedded/Relational SQL                   | **Option C: Relational SQL (SQLite/PG/MySQL)**     | Eliminates external infrastructure dependencies for embedded library users while retaining enterprise concurrency and durability. |
-| **Atomic Claim Mechanism**  | A. Distributed Redis Lock<br>B. DB Row Conditional UPDATE<br>C. Database Advisory Locks | **Option B: DB Row Conditional UPDATE with Lease** | Uniform across SQLite, Postgres, and MySQL. Works seamlessly without database-specific proprietary locking features.              |
-| **Ingestion Deduplication** | A. Read-then-Write (SELECT -> INSERT)<br>B. Unique Constraint with Upsert               | **Option B: Single-Statement Upsert**              | Eliminates race condition windows during high-frequency ingestion; guarantees idempotency at the storage engine level.            |
-| **Worker Architecture**     | A. Multi-process clustering<br>B. Single-process async poll & dispatch                  | **Option B: Async Poller with Bounded Batching**   | Minimizes CPU overhead and simplifies lifecycle management in embedded library contexts.                                          |
+**Related ADRs** (to be filed under `docs/02-design/adr/` using `templates/ADR-template.md` and referenced here once ratified at the design checkpoint): ADR-0001 unified atomic-claim pattern across dialects; ADR-0002 stale-lease recovery mechanism; ADR-0003 migration runner selection; ADR-0004 non-retryable 4xx classification.
 
-### 10.2 Related ADR References
+**Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC14), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R1–R7). Per master rules, coding begins only after explicit design-checkpoint approval of this document by the Product Engineer, Tech Lead, and stakeholder.
 
-- `docs/02-design/adr/ADR-001-unified-atomic-claim.md` — Rationale for conditional `UPDATE` lease pattern across SQL dialects.
-- `docs/02-design/adr/ADR-002-ssrf-mitigation-strategy.md` — Architectural enforcement of pre-flight DNS and IP validation.
-- `docs/02-design/adr/ADR-003-constant-time-auth.md` — Mitigation of side-channel timing attacks on API key verification.
+---
+
+_End of SDD v1.0.0 — structured per `templates/SDD-template.md`; section order and required headings preserved._

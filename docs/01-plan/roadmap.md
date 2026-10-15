@@ -8,10 +8,11 @@
 
 ### Phase 1: Foundation & Multi-Dialect Persistence
 
+- **Estimated Effort:** ~32h (WBS 1.0: 6h, WBS 2.0: 26h)
 - **Objective:** Establish the project environment, strict typing contracts, and the database persistence abstraction across all 3 supported SQL engines.
 - **Key Milestones:**
   - `M1.1`: Strict Node.js (≥24) / TypeScript workspace configured with zero-tolerance linting.
-  - `M1.2`: Core domain models (`WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`) established.
+  - `M1.2`: Core domain models (`WebhookEvent` with system-generated UUID, `AttemptRecord`, `DatabaseAdapter`) established.
   - `M1.3`: Unified schema definitions and built-in migration runner implemented.
   - `M1.4`: SQLite (`better-sqlite3`), PostgreSQL (`pg`), and MySQL (`mysql2`) drivers fully functional.
   - `M1.5`: Atomic conditional `UPDATE` claim mechanism and stale-lease reclamation implemented.
@@ -22,11 +23,12 @@
 
 ### Phase 2: Ingestion Pipeline & Security Subsystems
 
+- **Estimated Effort:** ~9h (WBS 3.0: 9h)
 - **Objective:** Build a secure, high-throughput intake layer that prevents duplicate processing and protects against infrastructure vulnerabilities.
 - **Key Milestones:**
   - `M2.1`: Constant-time API Key authentication using `crypto.timingSafeEqual` with pre-hashed keys.
   - `M2.2`: SSRF guard active to block loopback, RFC1918 private subnets, link-local, and cloud metadata IPs (`169.254.169.254`).
-  - `M2.3`: Atomic upsert ingestion pipeline responding with `201 Created` for fresh events and `200 OK` (`idempotent_replay: true`) on duplicates.
+  - `M2.3`: Atomic upsert ingestion pipeline responding uniformly with `202 Accepted` returning system `id`, `idempotency_key`, and `idempotent_replay: true|false`.
 - **Mapped WBS Items:** WBS 3.0 (3.1, 3.2, 3.3).
 - **Exit Criteria (DoD):** 1,000 concurrent duplicate ingestion requests produce exactly 1 stored event with zero race conditions.
 
@@ -34,12 +36,13 @@
 
 ### Phase 3: Worker Engine, HTTP Dispatcher & Backoff Policy
 
+- **Estimated Effort:** ~22h (WBS 4.0: 8h, WBS 5.0: 14h)
 - **Objective:** Implement the background polling loop, HTTP client dispatcher, cryptographic delivery signing, and bounded exponential backoff.
 - **Key Milestones:**
   - `M3.1`: Polling coordinator with configurable batch size and graceful SIGINT/SIGTERM lease release.
   - `M3.2`: Outbound request signer emitting canonical `x-webhook-signature` (HMAC SHA-256) and `x-webhook-timestamp`.
   - `M3.3`: Native fetch dispatcher bound to a strict 10s `AbortController` timeout.
-  - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$.
+  - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$, treating only 2xx as success and 4xx (including 429) & 5xx as retryable.
   - `M3.5`: Append-only attempt logging (`webhook_event_attempts`) with response payload truncation (≤1 KB).
 - **Mapped WBS Items:** WBS 4.0 (4.1, 4.2), WBS 5.0 (5.1, 5.2, 5.3, 5.4).
 - **Exit Criteria (DoD):** Guaranteed retry exhaustion at `maxAttempts` (5); zero orphaned records on ungraceful worker termination.
@@ -48,6 +51,7 @@
 
 ### Phase 4: Public Interfaces, End-to-End Hardening & Release Gate
 
+- **Estimated Effort:** ~38h (WBS 6.0: 11h, WBS 7.0: 22h, WBS 8.0: 5h)
 - **Objective:** Expose consumer interfaces (REST API and embedded TS library), validate under extreme concurrency, and satisfy all PRD release gates.
 - **Key Milestones:**
   - `M4.1`: REST endpoints operational (`POST /webhooks`, `GET /webhooks/:id`, `GET /webhooks/:id/attempts`).

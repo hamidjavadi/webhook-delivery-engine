@@ -2,7 +2,7 @@
 
 | Field        | Value                                    |
 | ------------ | ---------------------------------------- |
-| **Status**   | Draft — Pending Approval                 |
+| **Status**   | Approved / Baseline                      |
 | **Owner**    | Hamid Javadi (Product Engineer)          |
 | **Date**     | 2026-10-15                               |
 | **Version**  | 1.0.0                                    |
@@ -51,13 +51,13 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 
 ## 3. Users and Needs
 
-| #   | User / Persona                                 | Context                                     | Needs                                                                                                                      | Pain Today                                             |
-| --- | ---------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| U1  | **Backend developer integrating the library**  | Embeds the engine in a Node.js ≥ 24 service | Simple programmatic + HTTP API to enqueue events; idempotency by event ID; typed TS API                                    | No off-the-shelf durable retry; hand-rolled retry code |
-| U2  | **Ops / SRE engineer**                         | Monitors delivery health                    | Visibility into event states, attempt history, response codes, timestamps; ability to cap attempts and timeouts via config | No audit trail; cannot diagnose failed deliveries      |
-| U3  | **Webhook consumer (external endpoint owner)** | Receives deliveries at `WEBHOOK_URL`        | Reliable, ordered-enough delivery; Verifiable authenticity and an event id that consumers can use for deduplication        | Duplicates and unauthenticated deliveries              |
-| U4  | **Platform / API client**                      | Pushes events into the ingestion endpoint   | Simple, secure authentication (API key), fast acceptance (202-style async), clear idempotency semantics                    | Ad-hoc auth; no dedup guarantee                        |
-| U5  | **DBA / infrastructure owner**                 | Runs SQLite, Postgres, or MySQL             | Engine works across all three with the same code path and safe concurrent claiming, including on SQLite (single-writer)    | Schema/locking differences per DB                      |
+| #   | User / Persona                                 | Context                                     | Needs                                                                                                                                                     | Pain Today                                             |
+| --- | ---------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| U1  | **Backend developer integrating the library**  | Embeds the engine in a Node.js ≥ 24 service | Simple programmatic + HTTP API to enqueue events; idempotency by client-scoped `idempotency_key`; typed TS API                                            | No off-the-shelf durable retry; hand-rolled retry code |
+| U2  | **Ops / SRE engineer**                         | Monitors delivery health                    | Visibility into event states, attempt history, response codes, timestamps; ability to cap attempts and timeouts via config                                | No audit trail; cannot diagnose failed deliveries      |
+| U3  | **Webhook consumer (external endpoint owner)** | Receives deliveries at `WEBHOOK_URL`        | Reliable, ordered-enough delivery; Verifiable authenticity and the system-generated event `id` (header and body) that consumers can use for deduplication | Duplicates and unauthenticated deliveries              |
+| U4  | **Platform / API client**                      | Pushes events into the ingestion endpoint   | Simple, secure authentication (API key), fast acceptance (202-style async), clear idempotency semantics                                                   | Ad-hoc auth; no dedup guarantee                        |
+| U5  | **DBA / infrastructure owner**                 | Runs SQLite, Postgres, or MySQL             | Engine works across all three with the same code path and safe concurrent claiming, including on SQLite (single-writer)                                   | Schema/locking differences per DB                      |
 
 **Primary needs summary:**
 
@@ -75,7 +75,7 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 | ID  | Goal (SMART)                                                                                                                                                                                                                                                      | Metric                                                                          | Target                                                                                                                                              | Time-bound               |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | G1  | **Specific/Measurable:** Eliminate silent event loss — every accepted event is either delivered, in retry, or terminally failed with a recorded reason.                                                                                                           | Current state and complete attempt history recorded for 100% of accepted events | **100%** of accepted events                                                                                                                         | By v1.0.0 release        |
-| G2  | **Idempotency:** Duplicate ingestion of the same event ID creates exactly one delivery job.                                                                                                                                                                       | Duplicate ingestion test: unique jobs created / duplicate submissions           | **exactly 1** job per unique event ID (≥ 1000-subject concurrency test passes)                                                                      | Sprint of implementation |
+| G2  | **Idempotency:** Duplicate ingestion with the same `client_id` + `idempotency_key` pair creates exactly one delivery job.                                                                                                                                         | Duplicate ingestion test: unique jobs created / duplicate submissions           | **exactly 1** job per unique (`client_id`, `idempotency_key`) pair (≥ 1000-subject concurrency test passes)                                         | Sprint of implementation |
 | G3  | **Reliability of retries:** Transiently failing endpoint (5xx/timeout) is retried per bounded exponential backoff until `maxAttempts`.                                                                                                                            | Automated integration test with mock endpoint                                   | Retry schedule matches backoff spec ±jitter; no attempt beyond `maxAttempts`; 0 retries after terminal state                                        | Same sprint              |
 | G4  | **Concurrency safety:** Two or more workers never hold an active claim on the same due event simultaneously across SQLite, Postgres, and MySQL. Under at-least-once semantics, duplicate outbound deliveries remain possible only across worker crashes/reclaims. | Parallel claim integration test per DB driver                                   | **0** double-claims across ≥ 100 concurrent claims × 3 DB engines                                                                                   | Before DoD sign-off      |
 | G5  | **Security:** All ingestion requests require a valid API key (constant-time comparison) and all deliveries carry a valid HMAC SHA-256 signature; unauthenticated/forged traffic is rejected.                                                                      | Security test suite                                                             | 100% of requests without valid credentials rejected (401); signature verification test passes; timing analysis shows no secret-dependent early exit | Before DoD sign-off      |
@@ -95,21 +95,22 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 
 Table: `webhook_events` — one row per unique event (idempotency anchor).
 
-| Column Name       | Type                 | Constraints / Description                                                |
-| ----------------- | -------------------- | ------------------------------------------------------------------------ |
-| `id`              | UUID / String (PK)   | Unique identifier for the event.                                         |
-| `client_id`       | String               | ID of the authenticated client/tenant that ingested the event.           |
-| `destination_url` | String / Text        | Fully qualified HTTPS URL of the destination endpoint.                   |
-| `payload`         | Text / JSON          | Event body/payload to be delivered.                                      |
-| `status`          | Enum / String        | Current status: `pending`, `processing`, `delivered`, `retry`, `failed`. |
-| `attempt_count`   | Integer              | Current number of delivery attempts made (default `0`).                  |
-| `next_retry_at`   | Timestamp / DateTime | Next scheduled dispatch time for retries (indexed).                      |
-| `locked_at`       | Timestamp / DateTime | Timestamp when the worker acquired the row lease (nullable).             |
-| `locked_by`       | String               | Identifier of the worker holding the lease (nullable).                   |
-| `created_at`      | Timestamp / DateTime | Creation timestamp.                                                      |
-| `updated_at`      | Timestamp / DateTime | Last update timestamp.                                                   |
+| Column Name       | Type                 | Constraints / Description                                                                                                                         |
+| ----------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | UUID / String (PK)   | System-generated cryptographically secure, non-enumerable identifier (UUIDv4 or UUIDv7; unique per row; NOT the client-supplied idempotency key). |
+| `idempotency_key` | String               | Client-supplied idempotency key; uniqueness is enforced per client via UNIQUE(`client_id`, `idempotency_key`).                                    |
+| `client_id`       | String               | ID of the authenticated client/tenant that ingested the event.                                                                                    |
+| `destination_url` | String / Text        | Fully qualified HTTPS URL of the destination endpoint.                                                                                            |
+| `payload`         | Text / JSON          | Event body/payload to be delivered.                                                                                                               |
+| `status`          | Enum / String        | Current status: `pending`, `processing`, `delivered`, `retry`, `failed`.                                                                          |
+| `attempt_count`   | Integer              | Current number of delivery attempts made (default `0`).                                                                                           |
+| `next_retry_at`   | Timestamp / DateTime | Next scheduled dispatch time for retries (indexed).                                                                                               |
+| `locked_at`       | Timestamp / DateTime | Timestamp when the worker acquired the row lease (nullable).                                                                                      |
+| `locked_by`       | String               | Identifier of the worker holding the lease (nullable).                                                                                            |
+| `created_at`      | Timestamp / DateTime | Creation timestamp.                                                                                                                               |
+| `updated_at`      | Timestamp / DateTime | Last update timestamp.                                                                                                                            |
 
-Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id` serves idempotent upsert.
+Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id`; UNIQUE(`client_id`, `idempotency_key`) enforces per-client idempotency (the `id` itself is system-generated and globally unique across rows).
 
 ### 5.2 Database Schema — `webhook_event_attempts`
 
@@ -144,8 +145,8 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 
 ### 5.4 Idempotent Ingestion
 
-- **FR-1 (MUST):** Ingesting an event with an existing `id` MUST NOT create a second delivery job. Event `id` is globally unique across all clients in v1. Implementation: atomic upsert (`INSERT ... ON CONFLICT DO NOTHING` on SQLite/Postgres; `INSERT IGNORE` on MySQL) in a single statement, returning whether the row was newly inserted.
-- **FR-2 (MUST):** Response MUST indicate accepted-new vs. duplicate-accepted (e.g., 202 with `idempotent_replay: true|false`) so producers can detect replays.
+- **FR-1 (MUST):** Ingesting an event with an existing (`client_id`, `idempotency_key`) pair MUST NOT create a second delivery job. The event `id` is system-generated and unique; idempotency is enforced by UNIQUE(`client_id`, `idempotency_key`) — the same `idempotency_key` submitted by different clients MUST be treated as distinct events. Implementation: atomic upsert (`INSERT ... ON CONFLICT DO NOTHING` on SQLite/Postgres; `INSERT IGNORE` on MySQL) in a single statement against the UNIQUE(`client_id`, `idempotency_key`) constraint, returning whether the row was newly inserted.
+- **FR-2 (MUST):** Response MUST return both identifiers — the system-generated `id` and the accepted `idempotency_key` — and MUST indicate accepted-new vs. duplicate-accepted (e.g., 202 with `idempotent_replay: true|false`) so producers can detect replays and consumers can dedupe by `id`.
 
 ### 5.5 Unified Atomic Claim (all DBs, including SQLite/Postgres/MySQL)
 
@@ -176,8 +177,8 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 
 ### 5.9 Ingestion API & Observability
 
-- **FR-18 (MUST):** HTTP ingestion endpoint (`POST` event with `id` + `payload`) per README environment (`PORT`, `WEBHOOK_URL`).
-- **FR-19 (MUST):** Endpoints to query event status and attempt history (list events by status; get event with attempts).
+- **FR-18 (MUST):** HTTP ingestion endpoint (`POST` event with `idempotency_key` + `payload`, plus `destination_url` if present — falling back to configured `WEBHOOK_URL`) per README environment (`PORT`, `WEBHOOK_URL`). The client MUST NOT supply `id`; it is system-generated. The response MUST return both `id` and `idempotency_key`.
+- **FR-19 (MUST):** Endpoints to query event status and attempt history (list events by status; get event with attempts), addressable by the system-generated id and/or idempotency_key. All read endpoints MUST strictly enforce tenant isolation by scoping database queries to the authenticated client_id (WHERE id = :id AND client_id = :authClientId). Any request attempting to access an event belonging to another client MUST return HTTP 404 Not Found to prevent metadata leakage and Broken Object Level Authorization (BOLA/IDOR).
 - **FR-20 (SHOULD):** Structured logging (`LOG_LEVEL`) of lifecycle transitions.
 
 ---
@@ -192,6 +193,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - NFR-S4 (MUST): SQL access exclusively via parameterized statements/prepared statements (no string-concatenated SQL) across all three adapters.
 - NFR-S5 (SHOULD): Rate limiting on ingestion (basic fixed-window) to protect the embedded DB.
 - NFR-S6 (MUST): **SSRF Protection:** The engine MUST validate and sanitize all destination URLs prior to dispatch, blocking loopback addresses (`127.0.0.1`, `localhost`), private network ranges (RFC 1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local addresses, and cloud metadata endpoints (e.g., `169.254.169.254`) to prevent internal network scanning and Server-Side Request Forgery.
+- NFR-S7 (MUST): **Tenant Isolation & BOLA/IDOR Prevention:** Although system-generated `id`s are returned upon ingestion and are cryptographically random/non-enumerable, the engine MUST enforce strict multi-tenant boundary checks on all state-retrieval APIs. No event or attempt audit record shall ever be read or mutated without matching the authenticated caller's `client_id`.
 
 ### 6.2 Performance
 
@@ -225,7 +227,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 ### 7.1 In-Scope (v1)
 
 - Database schema + migrations for `webhook_events`, `webhook_event_attempts`, and Global Config (`timeoutLimitMs`, `maxAttempts`) on SQLite, PostgreSQL, MySQL.
-- Idempotent event ingestion (single-statement upsert) via HTTP API and programmatic API.
+- Idempotent event ingestion (single-statement upsert on UNIQUE(`client_id`, `idempotency_key`)) via HTTP API and programmatic API; system-generated event `id` returned alongside the client-supplied `idempotency_key`.
 - Database adapters for SQLite, PostgreSQL, and MySQL using a unified atomic conditional update pattern for concurrency and row-level locking.
 - Delivery worker with per-delivery HTTP timeout (`timeoutLimitMs`).
 - Bounded exponential backoff with full jitter; terminal `failed` state at `maxAttempts`.
@@ -251,8 +253,8 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 | ID   | Criterion (Given/When/Then)                                                                                                                                                                                                                                                                            | Verification                                                   |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| AC1  | Given a new event ID, when ingested, then a `webhook_events` row with `status='pending'` exists.                                                                                                                                                                                                       | Integration test                                               |
-| AC2  | Given the same event ID ingested N≥2 times (including concurrently), then exactly one delivery job exists and subsequent calls are flagged as idempotent replays.                                                                                                                                      | Concurrency test, ≥1000 parallel submissions                   |
+| AC1  | Given a new (`client_id`, `idempotency_key`) pair, when ingested, then a `webhook_events` row with a system-generated unique `id` and `status='pending'` exists, and the response returns both `id` and `idempotency_key`.                                                                             | Integration test                                               |
+| AC2  | Given the same (`client_id`, `idempotency_key`) pair ingested N≥2 times (including concurrently), then exactly one delivery job exists and subsequent calls are flagged as idempotent replays; the same `idempotency_key` from a different `client_id` creates a separate event.                       | Concurrency test, ≥1000 parallel submissions                   |
 | AC3  | Given two or more workers claiming due events simultaneously on SQLite, Postgres, and MySQL respectively, then no event is concurrently claimed by more than one worker; each due claim yields exactly one in-flight dispatch attempt.                                                                 | Per-DB parallel claim test (G4)                                |
 | AC4  | Given a delivery failing with 500/timeout, then the event transitions `pending→processing→retry`, an attempt row is written, and `next_retry_at = now + random(0, min(1000·2^(n−1), 60000))`.                                                                                                          | Unit test on backoff math; integration test with mock endpoint |
 | AC5  | Given attempts reach `maxAttempts` (default 5), then the event becomes `failed` and the last attempt row has `outcome='exhausted'`; no further deliveries occur.                                                                                                                                       | Integration test                                               |
@@ -281,7 +283,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 ### 9.2 Assumptions (explicit, low-risk per master rules)
 
 - **A1:** Single process instance in v1 (embedded library); horizontal multi-node deployment is not required for correctness of v1 (atomic claim still guards against accidental multi-worker within/across processes).
-- **A2:** Events are delivered at-least-once; consumers are expected to deduplicate using the event `id`.
+- **A2:** Events are delivered at-least-once; consumers are expected to deduplicate using the system-generated event `id` (exposed in both a delivery header, e.g. `x-webhook-event-id`, and the delivery body). Producer-side idempotency is separate and uses the client-supplied `idempotency_key` scoped by `client_id`.
 - **A3:** 2xx = success; everything else (including 429 and 4xx) is retryable until `maxAttempts` (subject to FR-17 decision at design checkpoint).
 - **A4:** Global config is single-scope (no per-tenant overrides) in v1.
 - **A5:** Clock skew within a single host is negligible; jitter/backoff use the host clock.
@@ -307,12 +309,12 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 ### 10.2 Architectural Constraints
 
-| ID     | Constraint                 | Description & Impact                                                                                                     | Governance / Compliance                                                   |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| **C1** | **Runtime Environment**    | Node.js ≥ 24.x and TypeScript strict mode (`noImplicitAny`, `strictNullChecks`). No legacy Node support.                 | README & CI pipeline prerequisite.                                        |
-| **C2** | **Zero Heavy Brokers**     | Must remain lightweight, embeddable, and headless. No Redis, RabbitMQ, Kafka, or external broker dependencies.           | Embedded SQL persistence with in-process event scheduler.                 |
-| **C3** | **Master Rule Governance** | No unilateral modifications to scope, acceptance criteria, or thresholds without explicit user approval.                 | Phase-gate review checkpoints (§1 Status, §11 DoD approvers).             |
-| **C4** | **Delivery Semantics**     | Strictly **at-least-once** delivery semantics. Exactly-once is out of scope by design; consumer idempotency is required. | Expose unique event IDs and HMAC timestamps for downstream deduplication. |
+| ID     | Constraint                 | Description & Impact                                                                                                                                                                                                                                                                       | Governance / Compliance                                                                                                      |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **C1** | **Runtime Environment**    | Node.js ≥ 24.x and TypeScript strict mode (`noImplicitAny`, `strictNullChecks`). No legacy Node support.                                                                                                                                                                                   | README & CI pipeline prerequisite.                                                                                           |
+| **C2** | **Zero Heavy Brokers**     | Must remain lightweight, embeddable, and headless. No Redis, RabbitMQ, Kafka, or external broker dependencies.                                                                                                                                                                             | Embedded SQL persistence with in-process event scheduler.                                                                    |
+| **C3** | **Master Rule Governance** | No unilateral modifications to scope, acceptance criteria, or thresholds without explicit user approval.                                                                                                                                                                                   | Phase-gate review checkpoints (§1 Status, §11 DoD approvers).                                                                |
+| **C4** | **Delivery Semantics**     | Strictly **at-least-once** delivery semantics. Exactly-once is out of scope by design; consumers MUST deduplicate by the delivered system-generated event `id` (header or body). Producer-side idempotency of ingestion is enforced separately via UNIQUE(`client_id`, `idempotency_key`). | Expose the system-generated event `id` in each delivery (header and body) plus HMAC timestamps for downstream deduplication. |
 
 ---
 
