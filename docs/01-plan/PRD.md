@@ -3,7 +3,7 @@
 | Field        | Value                                    |
 | ------------ | ---------------------------------------- |
 | **Status**   | Approved / Baseline                      |
-| **Owner**    | Hamid Javadi (Product Engineer)          |
+| **Owner**    | Product Engineer (Hamid Javadi)          |
 | **Date**     | 2026-10-15                               |
 | **Version**  | 1.0.0                                    |
 | **Template** | `templates/PRD-template.md` (agents.zip) |
@@ -33,7 +33,7 @@ Systems that emit webhooks to external consumers currently fail silently or lose
 
 ### 2.2 Evidence
 
-- **Codebase evidence (README.md):** the existing `webhook-retry-engine` repository explicitly targets these gaps — its stated Key Goals are _Idempotent Ingestion_, _Durable Persistence_ (embedded SQLite), _Bounded Exponential Backoff_, and _Delivery Observability_. The existence of these goals confirms the problem was identified in the current solution.
+- **Codebase evidence (README.md):** the existing `webhook-delivery-engine` repository explicitly targets these gaps — its stated Key Goals are _Idempotent Ingestion_, _Durable Persistence_ (embedded SQLite), _Bounded Exponential Backoff_, and _Delivery Observability_. The existence of these goals confirms the problem was identified in the current solution.
 - **Operational evidence (typical webhook failure profile):** industry-standard practice (Stripe, GitHub, Shopify) is that a meaningful percentage of webhook deliveries fail transiently (network blips, 5xx, TLS timeouts) and succeed on a later attempt — hence every major webhook platform ships persistent retry with exponential backoff and attempt logging.
 - **Incident pattern:** single-shot HTTP POST to `WEBHOOK_URL` (see `.env`: `WEBHOOK_URL=https://example.com/webhook`) means one transient 503 discards the event permanently.
 

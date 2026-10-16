@@ -1,17 +1,17 @@
 # SDD — Webhook Retry Engine
 
-| Field            | Value                                                            |
-| ---------------- | ---------------------------------------------------------------- |
-| **Status**       | Draft (v1.0.0) — awaiting design-checkpoint approval             |
-| **Owner**        | Hamid Javadi (Product Engineer) & Tech Lead (Node.js/TypeScript) |
-| **Date**         | 2026-10-15                                                       |
-| **Version**      | 1.0.0                                                            |
-| **Template**     | `templates/SDD-template.md` (agents.zip)                         |
-| **Linked PRD**   | `PRD.md` (v1.0.0, Approved/Baseline)                             |
-| **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                           |
-| **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)                      |
-| **Linked Risks** | `risks.md`                                                       |
-| **Related ADRs** | `docs/02-design/adr/` (to be filed at design checkpoint)         |
+| Field            | Value                                                    |
+| ---------------- | -------------------------------------------------------- |
+| **Status**       | Draft (v1.0.0) — awaiting design-checkpoint approval     |
+| **Owner**        | Product Engineer (Hamid Javadi)                          |
+| **Date**         | 2026-10-15                                               |
+| **Version**      | 1.0.0                                                    |
+| **Template**     | `templates/SDD-template.md` (agents.zip)                 |
+| **Linked PRD**   | `PRD.md` (v1.0.0, Approved/Baseline)                     |
+| **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                   |
+| **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)              |
+| **Linked Risks** | `risks.md`                                               |
+| **Related ADRs** | `docs/02-design/adr/` (to be filed at design checkpoint) |
 
 ---
 
