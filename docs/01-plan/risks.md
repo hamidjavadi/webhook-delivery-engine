@@ -3,7 +3,7 @@
 **Project:** Webhook Delivery Engine (Embedded Node.js/TypeScript Library & Service)  
 **Version:** 1.0.0  
 **Status:** Approved / Baseline  
-**Owner:** Hamid Javadi (Product Engineer / Tech Lead)  
+**Owner:** Product Engineer (Hamid Javadi)
 **Last Updated:** 2026-10-15  
 **Reference Docs:** `PRD.md`, `scope.md`, `WBS.md`, `roadmap.md`, `01-project-planning.md`
 

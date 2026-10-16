@@ -1,5 +1,5 @@
 {
-  "name": "webhook-retry-engine",
+  "name": "webhook-delivery-engine",
   "version": "1.0.0",
   "private": true,
   "type": "module",

@@ -25,8 +25,8 @@ A lightweight, embeddable Node.js & TypeScript library for reliable, idempotent 
 ### 1. Clone & Install Dependencies
 
 ```bash
-git clone https://github.com/hamidjavadi/webhook-retry-engine.git
-cd webhook-retry-engine
+git clone https://github.com/hamidjavadi/webhook-delivery-engine.git
+cd webhook-delivery-engine
 pnpm install
 ```
 
