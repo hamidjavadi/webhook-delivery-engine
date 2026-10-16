@@ -40,7 +40,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
   - Strictly at-least-once delivery semantics; consumers deduplicate using the system-generated event `id` supplied in delivery headers and body.
   - Bounded exponential backoff with full jitter formula: `next_retry_at = now + random(0, min(base * 2^(attempt - 1), capMs))`.
   - Configurable parameters: base delay (default: 1,000 ms), maximum backoff cap (default: 60,000 ms), per-delivery timeout limit (`timeoutLimitMs`, default: 10,000 ms), and retry ceiling (`maxAttempts`, default: 5 attempts).
-  - Status classification: `2xx` treated as successful; `4xx` (including `429`) and `5xx` treated as retryable until `maxAttempts`; terminal `failed` state with attempt outcome `exhausted` once retry ceiling is reached.
+  - Status classification: `2xx` treated as successful; non-retryable `4xx` (400, 401, 403, 404, 410, 422, and other default 4xx per ADR-0004) immediately transition to terminal `failed` without further retries; retryable `4xx` (408, 409, 429) and `5xx` treated as retryable until `maxAttempts`; terminal `failed` state with attempt outcome `exhausted` once retry ceiling is reached.
 
 ### 2.3 Security & Protection
 

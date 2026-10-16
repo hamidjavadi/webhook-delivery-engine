@@ -12,10 +12,10 @@
 
 ## 1. Status, Owner, Date, Version
 
-- **Status:** Draft (v1.0.0) — awaiting stakeholder review and approval checkpoint per `00-master-rules.md`.
-- **Owner:** Hamid Javadi (Product Engineer) — accountable for scope, priorities, and acceptance sign-off. Technical Owner: Tech Lead (Node.js/TypeScript).
-- **Date:** 2026-10-15 (last updated).
-- **Version:** 1.0.0 — initial PRD covering v1 of the Webhook Retry Engine.
+- **Status:** Approved / Baseline (v1.0.0) — stakeholder review and approval completed per 00-master-rules.md checkpoint.
+- **Owner:** Hamid Javadi (Product Engineer)
+- **Baseline Date:** 2026-10-16
+- **Document Version:** 1.0.0
 
 ---
 
