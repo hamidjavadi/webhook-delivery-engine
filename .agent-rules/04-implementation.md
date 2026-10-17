@@ -22,9 +22,29 @@ A task is Done only when acceptance criteria are met, tests pass, coverage thres
 ## Task Execution & Git Workflow
 
 - **Single-Task Scope:** Execute exactly ONE task per user prompt. Never auto-advance to subsequent tasks in `milestones-and-tasks.md`.
-- **Branch-Per-Task:** Always branch from `main` using the format `<type>/<task-id>-<short-description>` before making changes.
-- **Pull Request & Stop:** Upon completing the task DoD:
-  1. Commit with Conventional Commits.
-  2. Push the branch.
-  3. Create a Pull Request via GitHub CLI (`gh pr create`).
-  4. HALT execution immediately and wait for user review/merge.
+- **1. Create GitHub Issue First:** Before starting any work or creating a branch, create a GitHub issue for the task:
+  ```bash
+  gh issue create --title "<task-id>: <short-description>" --body "<task requirements & acceptance criteria>"
+  ```
+- **2. Sync Default Branch:** Before creating a new branch, switch to the `dev` branch and pull the latest changes from the remote repository:
+  ```bash
+  git checkout dev
+  git pull origin dev
+  ```
+- **3. Create Linked Branch:** Branch off the updated `dev` branch and reference the issue number in the branch name:
+  - Format: `<type>/<issue-number>-<short-description>` (e.g., `feat/12-add-webhook-retry`)
+  ```bash
+  git checkout -b <type>/<issue-number>-<short-description>
+  ```
+- **4. Implement & Commit:** Apply required changes following TDD and project standards. Commit changes using Conventional Commits linked to the issue:
+  - Format: `type(scope): <description> (closes #<issue-number>)`
+- **5. Push to Remote:** Push the local branch and commit to GitHub:
+  ```bash
+  git push -u origin <branch-name>
+  ```
+- **6. Open Pull Request & Stop:** Once Task DoD is fully satisfied:
+  1. Create a PR targeting the `dev` branch:
+     ```bash
+     gh pr create --base dev --title "<type>(<scope>): <summary>" --body "Closes #<issue-number>"
+     ```
+  2. STOP execution immediately. Wait for user review and merge before proceeding.
