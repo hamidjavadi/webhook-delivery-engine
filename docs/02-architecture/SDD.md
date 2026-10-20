@@ -321,4 +321,88 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 
 ---
 
+
+## 11. Feature-Based Directory Layout and Source Organization
+
+To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: each business capability (ingestion, scheduler, delivery, query) owns its routes, handlers, schemas, and tests, while cross-cutting concerns (adapters, contracts, security primitives, configuration, logging) live in shared layers that features depend on — never the reverse.
+
+### 11.1 Directory Structure
+
+```text
+src/
+├── features/                  # Business capabilities (one folder per feature)
+│   ├── ingestion/             # WBS 3.3 — idempotent event ingestion
+│   │   ├── ingestion.routes.ts        # POST /webhooks route registration
+│   │   ├── ingestion.handler.ts       # Atomic upsert handler, 202 response shape
+│   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
+│   │   ├── ingestion.service.ts       # Upsert + WEBHOOK_URL fallback logic
+│   │   └── ingestion.test.ts          # Unit/integration tests (AC1/AC2)
+│   ├── scheduler/             # WBS 2.6–2.7 — claim loop and stale-lease recovery
+│   │   ├── scheduler.loop.ts          # Poll cycle, batch-size claim dispatch
+│   │   ├── scheduler.claim.ts         # Atomic conditional UPDATE claim (ADR-0001)
+│   │   ├── scheduler.recovery.ts      # Stale-lease sweep (ADR-0002, FR-5)
+│   │   ├── scheduler.config.ts        # Poll interval / batch size accessors
+│   │   └── scheduler.test.ts          # ≥ 100 parallel claims, zero double-claims (AC3)
+│   ├── delivery/              # WBS 5.x — outbound dispatch
+│   │   ├── delivery.worker.ts         # Per-event dispatch, timeoutLimitMs abort
+│   │   ├── delivery.classify.ts       # Outcome classification (ADR-0004, FR-17)
+│   │   ├── delivery.backoff.ts        # Full-jitter exponential backoff math
+│   │   ├── delivery.hmac.ts           # HMAC-SHA256 signing (FR-11–FR-13)
+│   │   └── delivery.test.ts           # Retry lifecycle, signatures (AC4–AC8)
+│   └── query/                 # WBS 6.x — tenant-scoped status & attempt reads
+│       ├── query.routes.ts            # GET /webhooks, /:id, /:id/attempts
+│       ├── query.service.ts           # client_id-scoped queries (NFR-S7, FR-19)
+│       ├── query.schema.ts            # Filter/pagination validation
+│       └── query.test.ts              # Isolation tests (404 on cross-tenant)
+├── core/                      # Domain contracts and pure domain logic
+│   ├── types.ts                       # WebhookEvent, AttemptRecord, status enums
+│   ├── errors.ts                      # Typed error hierarchy, error shapes
+│   ├── result.ts                      # Result/Either helpers (no throw-across-seam)
+│   └── ports.ts                       # DatabaseAdapter, Clock, HttpClient interfaces
+├── storage/                   # Persistence layer (drivers + migrations)
+│   ├── adapters/
+│   │   ├── sqlite.adapter.ts          # better-sqlite3, WAL, BEGIN IMMEDIATE
+│   │   ├── postgres.adapter.ts        # pg pool, ON CONFLICT DO NOTHING
+│   │   └── mysql.adapter.ts           # mysql2 pool, INSERT IGNORE
+│   ├── migrations/
+│   │   ├── runner.ts                  # Idempotent in-process runner (ADR-0003)
+│   │   └── sql/                       # Versioned, forward-only .sql files
+│   └── storage.test.ts                # Per-dialect concurrency & parity tests
+├── security/                  # Cross-cutting security primitives
+│   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
+│   ├── ssrf.ts                        # URL resolver + private/metadata guard (AC14)
+│   ├── ratelimit.ts                   # Fixed-window ingestion limiter (NFR-S5)
+│   └── security.test.ts               # Auth, SSRF, isolation suites (AC7, AC12, AC14)
+├── app/                       # Composition & transport roots
+│   ├── http.server.ts                 # Standalone HTTP service bootstrap (pnpm dev)
+│   ├── embedded.ts                    # Embedded-library entrypoint (programmatic API)
+│   ├── engine.ts                      # Feature wiring: scheduler + delivery + API
+│   └── lifecycle.ts                   # Graceful start/stop, scheduler activation
+├── shared/                    # Infrastructure-agnostic utilities
+│   ├── logger.ts                      # Structured JSON logger + redactors (R6)
+│   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
+│   └── validation.ts                  # Shared schema validators
+└── config/                    # Configuration surface
+    ├── env.ts                         # Env parsing: PORT, DATABASE_PATH, secrets (D4)
+    ├── engine.config.ts               # EngineConfig defaults & validation (R5)
+    └── config.test.ts                 # Fallback-to-defaults tests
+```
+
+### 11.2 Dependency Rules
+
+- **features → core, storage, security, shared, config:** allowed. Features never import each other directly; cross-feature interaction goes through `core/ports.ts` interfaces (e.g., the scheduler consumes `DatabaseAdapter` contracts, not ingestion internals).
+- **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
+- **storage** is the only layer that imports database drivers (`better-sqlite3`, `pg`, `mysql2`); all statements remain parameterized (NFR-S4).
+- **security** is the only layer implementing auth, SSRF, and rate-limit primitives; features call it as middleware, keeping FR-7/FR-9 enforcement consistent across routes.
+- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). Entry points: `embedded.ts` for library consumers, `http.server.ts` for the standalone service — both sharing `engine.ts` wiring, satisfying NFR-C4 (identical internals, differing transport only).
+
+### 11.3 Rationale
+
+- **Change locality:** adding a consumer-facing capability (e.g., future re-drive tooling) is a new `src/features/<name>/` folder — no edits scattered across a layer-first tree.
+- **Testability parity with §9:** each feature folder carries its colocated tests mapped to acceptance criteria (AC1–AC14), and coverage thresholds (≥ 80% overall, ≥ 95% critical paths) are enforced per feature in CI.
+- **Constraint fit:** the layout preserves the low-coupling rule of §3 (everything programs against `DatabaseAdapter` and `EngineConfig` in `core/ports.ts` / `config/engine.config.ts`) and keeps dialect quirks (risk R7) isolated behind `storage/adapters/`.
+- **Master-rule compliance:** layout finalized at design checkpoint; structural changes after approval require an ADR.
+
+---
+
 _End of SDD v1.0.0 — structured per `templates/SDD-template.md`; section order and required headings preserved._
