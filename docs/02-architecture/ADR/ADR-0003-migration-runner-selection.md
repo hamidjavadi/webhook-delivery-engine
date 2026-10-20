@@ -20,7 +20,7 @@ The `webhook-delivery-engine` supports three distinct database engines (SQLite v
 
 | Option                                            | Pros                                                                                                           | Cons                                                                                                                                          | Verdict      |
 | :------------------------------------------------ | :------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- | :----------- |
-| **1. In-House Runner (Raw SQL Dialects)**         | Zero-dependency, full control over native data types (`TIMESTAMPTZ`, `UUID`), direct use of `DatabaseAdapter`. | Developers must maintain separate DDL files per engine (`migrations/{sqlite,postgres,mysql}/`).                                               | **Accepted** |
+| **1. In-House Runner (Raw SQL Dialects)**         | Zero-dependency, full control over native data types (`TIMESTAMPTZ`, `UUID`), direct use of `DatabaseAdapter`. | Developers must maintain separate DDL files per engine (`src/storage/migrations/sql/{sqlite,postgres,mysql}/`).                               | **Accepted** |
 | **2. Unified Schema/Query Builder (Knex/Kysely)** | Single migration file definitions across relational engines, lower initial authoring effort.                   | Leaky abstraction; flattens native dialect types, hides transactional DDL gaps (e.g. MySQL implicit commits), increases dependency footprint. | Rejected     |
 | **3. node-pg-migrate**                            | Feature-rich, TypeScript support, transactional execution.                                                     | PostgreSQL-only; strictly incompatible with SQLite and MySQL requirements.                                                                    | Rejected     |
 | **4. Prisma / Drizzle Kit**                       | Rich schema sync and typing.                                                                                   | ORM-heavy; violates the project requirement for lean, parameterized raw driver queries.                                                       | Rejected     |
@@ -29,7 +29,8 @@ The `webhook-delivery-engine` supports three distinct database engines (SQLite v
 
 We select an **In-House, Programmatic Migration Runner** executed via the core `DatabaseAdapter`.
 
-- Migrations will be structured as raw, versioned SQL files placed under engine-specific folders (e.g., `migrations/{sqlite,postgres,mysql}/`).
+- Migrations will be structured as raw, versioned SQL files placed under `src/storage/migrations/sql/{sqlite,postgres,mysql}/`.
+- `src/storage/migrations/runner.ts` resolves dialect scripts from its sibling `sql/<dialect>/` directory; migrations remain inside the storage module.
 - The runner executes automatically on service boot using atomic transactions where supported (PostgreSQL/SQLite) and idempotent step tracking in MySQL, prior to worker initialization.
 - Executed files are tracked in a lightweight `schema_migrations` table to guarantee idempotency.
 - Migrations follow a strict forward-only policy (no down-migrations in production; rollbacks are achieved by deploying previous binary versions against backward-compatible schemas).

@@ -102,6 +102,8 @@ Table: `webhook_events` — one row per unique event (idempotency anchor).
 | `client_id`       | String               | ID of the authenticated client/tenant that ingested the event.                                                                                    |
 | `destination_url` | String / Text        | Fully qualified HTTPS URL of the destination endpoint.                                                                                            |
 | `payload`         | Text / JSON          | Event body/payload to be delivered.                                                                                                               |
+| `metadata`        | Text / JSON          | Immutable JSON metadata associated with the event.                                                                                                |
+| `headers`         | Text / JSON          | Event-specific outbound headers; engine-owned headers cannot be overridden.                                                                        |
 | `status`          | Enum / String        | Current status: `pending`, `processing`, `delivered`, `retry`, `failed`.                                                                          |
 | `attempt_count`   | Integer              | Current number of delivery attempts made (default `0`).                                                                                           |
 | `next_retry_at`   | Timestamp / DateTime | Next scheduled dispatch time for retries (indexed).                                                                                               |
@@ -110,7 +112,7 @@ Table: `webhook_events` — one row per unique event (idempotency anchor).
 | `created_at`      | Timestamp / DateTime | Creation timestamp.                                                                                                                               |
 | `updated_at`      | Timestamp / DateTime | Last update timestamp.                                                                                                                            |
 
-Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id`; UNIQUE(`client_id`, `idempotency_key`) enforces per-client idempotency (the `id` itself is system-generated and globally unique across rows).
+Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id`; UNIQUE(`client_id`, `idempotency_key`) enforces per-client idempotency (the `id` itself is system-generated and globally unique across rows). The MySQL dialect stores `client_id` and `idempotency_key` as `VARCHAR(255)` to fit the exact composite unique key within InnoDB index limits; MySQL-backed ingestion must reject values longer than 255 characters.
 
 ### 5.2 Database Schema — `webhook_event_attempts`
 
@@ -128,7 +130,7 @@ Table: `webhook_event_attempts` — append-only audit of every delivery attempt.
 | `latency_ms`       | INTEGER          | NULL                                                   | Round-trip duration                            |
 | `outcome`          | TEXT enum        | NOT NULL                                               | `success` \| `retry_scheduled` \| `exhausted`  |
 
-Index: `idx_attempts_event (event_id, attempt_number)`.
+Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attempt_number)`.
 
 ### 5.3 Global Config
 

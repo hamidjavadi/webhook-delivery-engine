@@ -151,18 +151,18 @@ Indexes: PK on `id`; `UNIQUE(client_id, idempotency_key)` (idempotency anchor); 
 | `latency_ms`       | INTEGER   | Round-trip duration.                                      |
 | `outcome`          | TEXT enum | `success` \| `retry_scheduled` \| `exhausted`.            |
 
-Index: `idx_attempts_event (event_id, attempt_number)`.
+Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attempt_number)`, enforcing one append-only record per event attempt ordinal.
 
 ### 4.3 Dialect Mapping and Validation
 
-- **SQLite:** TEXT ids, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
-- **PostgreSQL:** `UUID`/`TEXT` ids, `TIMESTAMPTZ`, upsert via `INSERT ... ON CONFLICT (client_id, idempotency_key) DO NOTHING`.
-- **MySQL:** `CHAR(36)` UUIDs, `DATETIME(3)`, upsert via `INSERT IGNORE`; MySQL 8.0+ floor enforced if conditional-update edge cases emerge (R2 contingency).
+- **SQLite:** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
+- **PostgreSQL:** `UUID` ids, JSON-validated `TEXT` payload/metadata/headers, `TIMESTAMPTZ`, upsert via `INSERT ... ON CONFLICT (client_id, idempotency_key) DO NOTHING`.
+- **MySQL:** `CHAR(36)` UUIDs, native JSON, `DATETIME(3)`, and `VARCHAR(255)` for both `client_id` and `idempotency_key` so the exact tenant-scoped unique index fits within InnoDB key limits. Both indexed strings use a binary collation for case-sensitive key matching. Ingestion must reject values exceeding those column limits and ensure `response_snippet` is at most 1 KB in encoded bytes. The in-house runner uses `INSERT IGNORE`; InnoDB DDL is not transactionally rollbackable, so migration tracking occurs only after the complete idempotent DDL script succeeds (R2 contingency).
 - Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
 
 ### 4.4 Migration Policy
 
-Migrations are hand-written SQL versioned in-repo, applied by the embedded idempotent migration runner on engine startup before the scheduler starts. Forward-only; no destructive auto-migrations. A schema change requires an ADR (see §10).
+Migrations are hand-written SQL versioned in-repo, applied by the embedded idempotent migration runner on engine startup before the scheduler starts. The runner owns `schema_migrations` and wraps each SQLite/PostgreSQL script and its version record in one transaction; the DDL files do not start nested transactions. MySQL scripts use idempotent `CREATE TABLE IF NOT EXISTS` statements with their indexes and constraints defined inline, and the runner records the version only after the complete script succeeds because InnoDB DDL implicitly commits. Forward-only; no destructive auto-migrations. A schema change requires an ADR (see §10).
 
 ### 4.5 Sensitive Data and Retention
 
@@ -375,8 +375,11 @@ src/
 │   │   ├── postgres.adapter.ts        # pg pool, ON CONFLICT DO NOTHING
 │   │   └── mysql.adapter.ts           # mysql2 pool, INSERT IGNORE
 │   ├── migrations/
-│   │   ├── runner.ts                  # Idempotent in-process runner (ADR-0003)
-│   │   └── sql/                       # Versioned, forward-only .sql files
+│   │   ├── runner.ts                  # Loads sibling sql/<dialect>/ scripts (ADR-0003)
+│   │   └── sql/
+│   │       ├── sqlite/                # Versioned SQLite .sql files
+│   │       ├── postgres/              # Versioned PostgreSQL .sql files
+│   │       └── mysql/                 # Versioned MySQL .sql files
 │   └── storage.test.ts                # Per-dialect concurrency & parity tests
 ├── security/                  # Cross-cutting security primitives
 │   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
