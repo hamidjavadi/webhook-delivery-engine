@@ -28,27 +28,31 @@ A task is Done only when acceptance criteria are met, tests pass, coverage thres
 ## Task Execution & Git Workflow
 
 - **Single-Task Scope:** Execute exactly ONE task per user prompt. Never auto-advance to subsequent tasks in `milestones-and-tasks.md`.
-- **1. Create GitHub Issue First:** Before starting any work or creating a branch, create a GitHub issue for the task:
+- **CRITICAL: Zero-Tolerance Fail-Fast Policy for Steps 1–3:** Steps 1, 2, and 3 below are hard gates. Each command MUST exit with code 0 before the next step may begin. If any command in Steps 1–3 fails or exits non-zero, Agent MUST STOP immediately, report the exact failure to the user, and MUST NOT proceed to any later step.
+- **Step 1: Create GitHub Issue First + Gate:** Before starting any work or creating a branch, create a GitHub issue for the task and require a successful exit (code 0):
   ```bash
   gh issue create --title "<task-id>: <short-description>" --body "<task requirements & acceptance criteria>"
   ```
-- **2. Sync Default Branch:** Before creating a new branch, switch to the `dev` branch and pull the latest changes from the remote repository:
+  - **Gate:** Command MUST exit 0 (issue created). On failure: STOP and report; do not create a branch.
+- **Step 2: Sync Default Branch + Gate:** Before creating a new branch, switch to the `dev` branch and pull the latest changes from the remote repository:
   ```bash
   git checkout dev
   git pull origin dev
   ```
-- **3. Create Linked Branch:** Branch off the updated `dev` branch and reference the issue number in the branch name:
+  - **Gate:** Both commands MUST exit 0. On failure: STOP and report; do not create a branch.
+- **Step 3: Create Linked Branch + Gate:** Branch off the updated `dev` branch and reference the issue number in the branch name:
   - Format: `<type>/<issue-number>-<short-description>` (e.g., `feat/12-add-webhook-retry`)
   ```bash
   git checkout -b <type>/<issue-number>-<short-description>
   ```
-- **4. Implement & Commit:** Apply required changes following TDD and project standards. Commit changes using Conventional Commits linked to the issue:
+  - **Gate:** Command MUST exit 0. On failure: STOP and report.
+- **Step 4: Implement & Commit:** Only proceed here after Steps 1–3 have all passed with exit code 0. Apply required changes following TDD and project standards. Commit changes using Conventional Commits linked to the issue:
   - Format: `type(scope): <description> (closes #<issue-number>)`
-- **5. Push to Remote:** Push the local branch and commit to GitHub:
+- **Step 5: Push to Remote:** Push the local branch and commit to GitHub:
   ```bash
   git push -u origin <branch-name>
   ```
-- **6. Open Pull Request & Stop:** Once Task DoD is fully satisfied:
+- **Step 6: Open Pull Request & Stop:** Once Task DoD is fully satisfied:
   1. Create a PR targeting the `dev` branch:
      ```bash
      gh pr create --base dev --title "<type>(<scope>): <summary>" --body "Closes #<issue-number>"
