@@ -1,21 +1,20 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "lib": ["ES2024"],
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "rewriteRelativeImportExtensions": true,
-    "allowImportingTsExtensions": true,
-    "noEmit": false,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "verbatimModuleSyntax": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests/**/*.test.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

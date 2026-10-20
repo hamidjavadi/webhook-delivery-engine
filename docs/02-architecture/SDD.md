@@ -88,20 +88,20 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 
 ## 3. Modules and Responsibilities
 
-| Module                                 | Responsibility                                                                                                                                                                                                                                                                                  | Key Dependencies                 |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                                                                      | None                             |
-| **Persistence Adapters** (WBS 2.3–2.5) | One `DatabaseAdapter` implementation per dialect — `better-sqlite3` (WAL, `busy_timeout=5000`, `BEGIN IMMEDIATE`), `pg` (pooling, `ON CONFLICT DO NOTHING`), `mysql2` (pooling, `INSERT IGNORE`). All statements parameterized (NFR-S4).                                                        | Domain Types, Migration Runner   |
-| **Migration Runner** (WBS 2.2)         | Idempotent, in-process DDL migrations across all three dialects; no external CLI. Version table records applied migrations.                                                                                                                                                                     | Adapters                         |
-| **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                                                            | Domain Types                     |
-| **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                                                                | Domain Types                     |
-| **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                                                        | Adapters, Auth, Validator        |
-| **Claim Scheduler** (WBS 2.6–2.7)      | Poll loop: batch-size atomic conditional claim of due rows (including stale-lease recovery); emits claimed batches to workers.                                                                                                                                                                  | Adapters, Config Provider        |
-| **Delivery Worker** (WBS 5.x)          | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters |
-| **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                                                                     | Config                           |
-| **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5).                                        | None                             |
-| **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                                                       | Adapters, Auth                   |
-| **Structured Logger** (WBS 6.x)        | JSON lifecycle logging at `LOG_LEVEL`; mandatory redaction of `Authorization`, `x-api-key`, HMAC secret, and payload bodies (risk R6).                                                                                                                                                          | None                             |
+| Module                                 | Responsibility                                                                                                                                                                                                                                           | Key Dependencies                 |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
+| **Persistence Adapters** (WBS 2.3–2.5) | One `DatabaseAdapter` implementation per dialect — `better-sqlite3` (WAL, `busy_timeout=5000`, `BEGIN IMMEDIATE`), `pg` (pooling, `ON CONFLICT DO NOTHING`), `mysql2` (pooling, `INSERT IGNORE`). All statements parameterized (NFR-S4).                 | Domain Types, Migration Runner   |
+| **Migration Runner** (WBS 2.2)         | Idempotent, in-process DDL migrations across all three dialects; no external CLI. Version table records applied migrations.                                                                                                                              | Adapters                         |
+| **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
+| **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
+| **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
+| **Claim Scheduler** (WBS 2.6–2.7)      | Poll loop: batch-size atomic conditional claim of due rows (including stale-lease recovery); emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
+| **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
+| **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
+| **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
+| **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
+| **Structured Logger** (WBS 6.x)        | JSON lifecycle logging at `LOG_LEVEL`; mandatory redaction of `Authorization`, `x-api-key`, HMAC secret, and payload bodies (risk R6).                                                                                                                   | None                             |
 
 High cohesion / low coupling: every module depends only on the `DatabaseAdapter` and `EngineConfig` contracts; no module imports a concrete driver directly. This isolates dialect quirks (risk R7) behind the adapter seam.
 
@@ -305,19 +305,103 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 
 ## 10. Options, Trade-offs, and Related ADRs
 
-| Decision               | Selected Option                                                                                                                                                                                                                        | Rejected Alternatives & Rationale                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Queue substrate        | Relational tables + atomic conditional `UPDATE` claim                                                                                                                                                                                  | External broker (Redis/Kafka/RabbitMQ) — violates lightweight-embeddable constraint C2 and adds operational surface                                  |
-| Claim primitive        | Unified conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows                                                                                                                                           | `SELECT ... FOR UPDATE SKIP LOCKED` — not portable to SQLite and MySQL < 8.0 (risk R2)                                                               |
-| Delivery semantics     | At-least-once with consumer deduplication by system `id`                                                                                                                                                                               | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)                                         |
-| Retry policy           | Bounded exponential backoff with **full jitter**                                                                                                                                                                                       | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                                                           |
-| Non-2xx classification | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
-| Stale-lease recovery   | Scheduler-driven stale-claim sweep each poll cycle                                                                                                                                                                                     | Heartbeat-only leases — extra write amplification; mechanism finalized at design checkpoint (ADR required)                                           |
-| Id generation          | Server-side UUIDv4 (non-enumerable)                                                                                                                                                                                                    | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                                              |
+| Decision               | Selected Option                                                                              | Rejected Alternatives & Rationale                                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Queue substrate        | Relational tables + atomic conditional `UPDATE` claim                                        | External broker (Redis/Kafka/RabbitMQ) — violates lightweight-embeddable constraint C2 and adds operational surface    |
+| Claim primitive        | Unified conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows | `SELECT ... FOR UPDATE SKIP LOCKED` — not portable to SQLite and MySQL < 8.0 (risk R2)                                 |
+| Delivery semantics     | At-least-once with consumer deduplication by system `id`                                     | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)           |
+| Retry policy           | Bounded exponential backoff with **full jitter**                                             | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                             |
+| Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
+| Stale-lease recovery   | Scheduler-driven stale-claim sweep each poll cycle                                           | Heartbeat-only leases — extra write amplification; mechanism finalized at design checkpoint (ADR required)             |
+| Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 
 **Related ADRs** (to be filed under `docs/02-design/adr/` using `templates/ADR-template.md` and referenced here once ratified at the design checkpoint): ADR-0001 unified atomic-claim pattern across dialects; ADR-0002 stale-lease recovery mechanism; ADR-0003 migration runner selection; ADR-0004 non-retryable 4xx classification.
 
 **Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC14), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R1–R7). Per master rules, coding begins only after explicit design-checkpoint approval of this document by the Product Engineer, Tech Lead, and stakeholder.
+
+---
+
+
+## 11. Feature-Based Directory Layout and Source Organization
+
+To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: each business capability (ingestion, scheduler, delivery, query) owns its routes, handlers, schemas, and tests, while cross-cutting concerns (adapters, contracts, security primitives, configuration, logging) live in shared layers that features depend on — never the reverse.
+
+### 11.1 Directory Structure
+
+```text
+src/
+├── features/                  # Business capabilities (one folder per feature)
+│   ├── ingestion/             # WBS 3.3 — idempotent event ingestion
+│   │   ├── ingestion.routes.ts        # POST /webhooks route registration
+│   │   ├── ingestion.handler.ts       # Atomic upsert handler, 202 response shape
+│   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
+│   │   ├── ingestion.service.ts       # Upsert + WEBHOOK_URL fallback logic
+│   │   └── ingestion.test.ts          # Unit/integration tests (AC1/AC2)
+│   ├── scheduler/             # WBS 2.6–2.7 — claim loop and stale-lease recovery
+│   │   ├── scheduler.loop.ts          # Poll cycle, batch-size claim dispatch
+│   │   ├── scheduler.claim.ts         # Atomic conditional UPDATE claim (ADR-0001)
+│   │   ├── scheduler.recovery.ts      # Stale-lease sweep (ADR-0002, FR-5)
+│   │   ├── scheduler.config.ts        # Poll interval / batch size accessors
+│   │   └── scheduler.test.ts          # ≥ 100 parallel claims, zero double-claims (AC3)
+│   ├── delivery/              # WBS 5.x — outbound dispatch
+│   │   ├── delivery.worker.ts         # Per-event dispatch, timeoutLimitMs abort
+│   │   ├── delivery.classify.ts       # Outcome classification (ADR-0004, FR-17)
+│   │   ├── delivery.backoff.ts        # Full-jitter exponential backoff math
+│   │   ├── delivery.hmac.ts           # HMAC-SHA256 signing (FR-11–FR-13)
+│   │   └── delivery.test.ts           # Retry lifecycle, signatures (AC4–AC8)
+│   └── query/                 # WBS 6.x — tenant-scoped status & attempt reads
+│       ├── query.routes.ts            # GET /webhooks, /:id, /:id/attempts
+│       ├── query.service.ts           # client_id-scoped queries (NFR-S7, FR-19)
+│       ├── query.schema.ts            # Filter/pagination validation
+│       └── query.test.ts              # Isolation tests (404 on cross-tenant)
+├── core/                      # Domain contracts and pure domain logic
+│   ├── types.ts                       # WebhookEvent, AttemptRecord, status enums
+│   ├── errors.ts                      # Typed error hierarchy, error shapes
+│   ├── result.ts                      # Result/Either helpers (no throw-across-seam)
+│   └── ports.ts                       # DatabaseAdapter, Clock, HttpClient interfaces
+├── storage/                   # Persistence layer (drivers + migrations)
+│   ├── adapters/
+│   │   ├── sqlite.adapter.ts          # better-sqlite3, WAL, BEGIN IMMEDIATE
+│   │   ├── postgres.adapter.ts        # pg pool, ON CONFLICT DO NOTHING
+│   │   └── mysql.adapter.ts           # mysql2 pool, INSERT IGNORE
+│   ├── migrations/
+│   │   ├── runner.ts                  # Idempotent in-process runner (ADR-0003)
+│   │   └── sql/                       # Versioned, forward-only .sql files
+│   └── storage.test.ts                # Per-dialect concurrency & parity tests
+├── security/                  # Cross-cutting security primitives
+│   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
+│   ├── ssrf.ts                        # URL resolver + private/metadata guard (AC14)
+│   ├── ratelimit.ts                   # Fixed-window ingestion limiter (NFR-S5)
+│   └── security.test.ts               # Auth, SSRF, isolation suites (AC7, AC12, AC14)
+├── app/                       # Composition & transport roots
+│   ├── http.server.ts                 # Standalone HTTP service bootstrap (pnpm dev)
+│   ├── embedded.ts                    # Embedded-library entrypoint (programmatic API)
+│   ├── engine.ts                      # Feature wiring: scheduler + delivery + API
+│   └── lifecycle.ts                   # Graceful start/stop, scheduler activation
+├── shared/                    # Infrastructure-agnostic utilities
+│   ├── logger.ts                      # Structured JSON logger + redactors (R6)
+│   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
+│   └── validation.ts                  # Shared schema validators
+└── config/                    # Configuration surface
+    ├── env.ts                         # Env parsing: PORT, DATABASE_PATH, secrets (D4)
+    ├── engine.config.ts               # EngineConfig defaults & validation (R5)
+    └── config.test.ts                 # Fallback-to-defaults tests
+```
+
+### 11.2 Dependency Rules
+
+- **features → core, storage, security, shared, config:** allowed. Features never import each other directly; cross-feature interaction goes through `core/ports.ts` interfaces (e.g., the scheduler consumes `DatabaseAdapter` contracts, not ingestion internals).
+- **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
+- **storage** is the only layer that imports database drivers (`better-sqlite3`, `pg`, `mysql2`); all statements remain parameterized (NFR-S4).
+- **security** is the only layer implementing auth, SSRF, and rate-limit primitives; features call it as middleware, keeping FR-7/FR-9 enforcement consistent across routes.
+- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). Entry points: `embedded.ts` for library consumers, `http.server.ts` for the standalone service — both sharing `engine.ts` wiring, satisfying NFR-C4 (identical internals, differing transport only).
+
+### 11.3 Rationale
+
+- **Change locality:** adding a consumer-facing capability (e.g., future re-drive tooling) is a new `src/features/<name>/` folder — no edits scattered across a layer-first tree.
+- **Testability parity with §9:** each feature folder carries its colocated tests mapped to acceptance criteria (AC1–AC14), and coverage thresholds (≥ 80% overall, ≥ 95% critical paths) are enforced per feature in CI.
+- **Constraint fit:** the layout preserves the low-coupling rule of §3 (everything programs against `DatabaseAdapter` and `EngineConfig` in `core/ports.ts` / `config/engine.config.ts`) and keeps dialect quirks (risk R7) isolated behind `storage/adapters/`.
+- **Master-rule compliance:** layout finalized at design checkpoint; structural changes after approval require an ADR.
 
 ---
 

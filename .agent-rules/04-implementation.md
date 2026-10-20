@@ -15,6 +15,12 @@
 - Is the code readable, free of unnecessary duplication/complexity, and consistent with repository standards?
 - Do logs/telemetry avoid exposing sensitive information, and are operations reversible?
 
+### Single Source of Truth (SSOT) & Anti-Duplication Rule:
+
+- **No Duplicate Types or Queries:** Every database model, query statement, schema interface, and domain type MUST have a single, canonical source of truth within its designated module (e.g., Domain Types module / SDD.md specs).
+- **Import Exclusively:** Inline type declarations, duplicate SQL/ORM query snippets, or redundant definitions across files are strictly prohibited. All consumers must import from the official SSOT module.
+- **Audit during Implementation:** During code implementation and review, explicitly verify that no new types or queries are duplicated. Refactor any discovered duplicates immediately.
+
 ## Task DoD
 
 A task is Done only when acceptance criteria are met, tests pass, coverage thresholds are satisfied, required lint/format/build checks succeed, affected documentation and ADRs are updated, changes are reviewed, and no hidden risks/limitations remain. Agent MUST NOT claim that unrun or blocked items are Done.
