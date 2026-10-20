@@ -375,8 +375,11 @@ src/
 │   │   ├── postgres.adapter.ts        # pg pool, ON CONFLICT DO NOTHING
 │   │   └── mysql.adapter.ts           # mysql2 pool, INSERT IGNORE
 │   ├── migrations/
-│   │   ├── runner.ts                  # Idempotent in-process runner (ADR-0003)
-│   │   └── sql/                       # Versioned, forward-only .sql files
+│   │   ├── runner.ts                  # Loads sibling sql/<dialect>/ scripts (ADR-0003)
+│   │   └── sql/
+│   │       ├── sqlite/                # Versioned SQLite .sql files
+│   │       ├── postgres/              # Versioned PostgreSQL .sql files
+│   │       └── mysql/                 # Versioned MySQL .sql files
 │   └── storage.test.ts                # Per-dialect concurrency & parity tests
 ├── security/                  # Cross-cutting security primitives
 │   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)

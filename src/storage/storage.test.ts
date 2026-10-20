@@ -3,15 +3,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 
 const sqliteMigration = readFileSync(
-  new URL('../../migrations/sqlite/001_initial_schema.sql', import.meta.url),
+  new URL('./migrations/sql/sqlite/001_initial_schema.sql', import.meta.url),
   'utf8',
 );
 const postgresMigration = readFileSync(
-  new URL('../../migrations/postgres/001_initial_schema.sql', import.meta.url),
+  new URL('./migrations/sql/postgres/001_initial_schema.sql', import.meta.url),
   'utf8',
 );
 const mysqlMigration = readFileSync(
-  new URL('../../migrations/mysql/001_initial_schema.sql', import.meta.url),
+  new URL('./migrations/sql/mysql/001_initial_schema.sql', import.meta.url),
   'utf8',
 );
 
