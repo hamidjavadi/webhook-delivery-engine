@@ -161,41 +161,29 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
   public async claimDueEvents(input: ClaimDueEventsInput): Promise<readonly WebhookEvent[]> {
     assertPositiveSafeInteger(input.limit, 'limit');
     const now = normalizeTimestamp(input.now, 'now');
-    const claimedRows = this.database
-      .transaction(() => {
-        const selectedRows = this.database
-          .prepare(
-            `SELECT id FROM webhook_events
-             WHERE (status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?))
-                OR (status = 'retry' AND next_retry_at <= ?)
-             ORDER BY created_at, id
-             LIMIT ?`,
-          )
-          .all(now, now, input.limit);
-        const ids = selectedRows.map((row) => readStringProperty(row, 'id'));
-        if (ids.length === 0) return [];
+    const claimedEvents = this.database
+      .prepare(
+        `UPDATE webhook_events
+         SET status = 'processing', locked_at = ?, locked_by = ?,
+             attempt_count = attempt_count + 1, updated_at = ?
+         WHERE id IN (
+           SELECT id FROM webhook_events
+           WHERE status IN ('pending', 'retry')
+             AND (next_retry_at IS NULL OR next_retry_at <= ?)
+           ORDER BY created_at ASC, id ASC
+           LIMIT ?
+         )
+         RETURNING *`,
+      )
+      .all(now, input.workerId, now, now, input.limit)
+      .map(readEvent);
 
-        const placeholders = ids.map(() => '?').join(', ');
-        this.database
-          .prepare(
-            `UPDATE webhook_events
-             SET status = 'processing', locked_at = ?, locked_by = ?,
-                 attempt_count = attempt_count + 1, updated_at = ?
-             WHERE id IN (${placeholders})`,
-          )
-          .run(now, input.workerId, now, ...ids);
-
-        return this.database
-          .prepare(
-            `SELECT * FROM webhook_events
-             WHERE locked_by = ? AND status = 'processing'
-               AND id IN (${placeholders})
-             ORDER BY created_at, id`,
-          )
-          .all(input.workerId, ...ids);
-      })
-      .immediate();
-    return claimedRows.map(readEvent);
+    return claimedEvents.sort((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt < right.createdAt ? -1 : 1;
+      }
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    });
   }
 
   /** @inheritdoc */

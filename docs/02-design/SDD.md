@@ -2,7 +2,7 @@
 
 | Field            | Value                                                    |
 | ---------------- | -------------------------------------------------------- |
-| **Status**       | Approved (v1.0.0) — includes approved Task 2.3 adapter design |
+| **Status**       | Approved (v1.0.0) — includes approved WBS 2.6 atomic-claim design |
 | **Owner**        | Product Engineer (Hamid Javadi)                          |
 | **Date**         | 2026-10-15                                               |
 | **Version**      | 1.0.0                                                    |
@@ -155,7 +155,7 @@ Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attem
 
 ### 4.3 Dialect Mapping and Validation
 
-- **SQLite (v1.0):** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, and `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
+- **SQLite (v1.0):** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, single-statement conditional `UPDATE ... RETURNING` claims, and `BEGIN IMMEDIATE` for multi-statement attempt/state transitions (mitigates R1).
 - PostgreSQL and MySQL dialect mappings, schemas, drivers, and adapters are deferred to v2.0 and are not shipped or supported by the v1.0 runtime.
 - Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
 
@@ -165,7 +165,9 @@ Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attem
 
 All writes are parameterized. JSON values are validated and serialized to JSON text at write boundaries and parsed/validated when read; timestamps are validated and stored as normalized UTC ISO-8601 strings. Tenant-scoped lookup/list/attempt queries always bind `client_id`. Pagination is bounded to 1–1,000 rows and orders by `(created_at, id)` to provide a stable cursor.
 
-Claiming selects `pending` rows with no retry time or a due retry time, and `retry` rows whose retry time is due; it changes status, lease owner/time, attempt count, and update time within one `BEGIN IMMEDIATE` transaction. Stale-lease recovery only changes expired leases; release only changes a lease owned by the requesting worker and reverses its reserved attempt count. Attempt insertion and the corresponding terminal/retry event transition are one `BEGIN IMMEDIATE` transaction: validate the current lease and next attempt ordinal, append the audit row, update state and retry time, and clear lease fields. A stale owner or invalid transition returns `false` without partial writes; database/serialization errors reject the operation.
+Claiming uses the single-statement atomic conditional `UPDATE ... RETURNING` pattern from ADR-0001. The inner ordered limited subquery selects only due `pending`/`retry` rows; the same `UPDATE` sets `processing`, lease owner/time, increments the reserved attempt count, updates the timestamp, and returns each claimed event. It does not select candidate IDs into application memory or issue a separate update/read query, and does not require an explicit surrounding transaction because the SQLite statement itself is atomic. Per the approved WBS 2.6 design checkpoint, `ClaimDueEventsInput.now` supplies one validated UTC ISO-8601 reference timestamp used for due-time comparison, lease acquisition, and update time. This preserves the driver-neutral contract and avoids lexically comparing ISO-8601 text with SQLite's differently formatted `CURRENT_TIMESTAMP`; all claim decisions within a call use the same clock value.
+
+Stale-lease recovery only changes expired leases; release only changes a lease owned by the requesting worker and reverses its reserved attempt count. Attempt insertion and the corresponding terminal/retry event transition are one `BEGIN IMMEDIATE` transaction: validate the current lease and next attempt ordinal, append the audit row, update state and retry time, and clear lease fields. A stale owner or invalid transition returns `false` without partial writes; database/serialization errors reject the operation.
 
 ### 4.5 Migration Policy
 

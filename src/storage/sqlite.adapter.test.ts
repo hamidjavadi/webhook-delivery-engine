@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -69,6 +70,72 @@ function createExhaustedAttempt(): AttemptRecord & { readonly outcome: 'exhauste
     error: 'retry limit reached',
     outcome: 'exhausted',
   };
+}
+
+async function claimFromSeparateProcess(
+  databasePath: string,
+  workerId: string,
+): Promise<readonly string[]> {
+  const program = `
+    const { SqliteDatabaseAdapter } = await import(process.argv[1]);
+    const adapter = await SqliteDatabaseAdapter.open(process.argv[2]);
+    try {
+      const events = await adapter.claimDueEvents({
+        workerId: process.argv[3],
+        now: process.argv[4],
+        limit: Number(process.argv[5]),
+      });
+      process.stdout.write(JSON.stringify(events.map(({ id }) => id)));
+    } finally {
+      adapter.close();
+    }
+  `;
+  const child = spawn(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      program,
+      new URL('./sqlite.adapter.ts', import.meta.url).href,
+      databasePath,
+      workerId,
+      timestamp,
+      '6',
+    ],
+    { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Claim worker ${workerId} failed (${code}): ${stderr}`));
+        return;
+      }
+      try {
+        const claimedIds: unknown = JSON.parse(stdout);
+        if (
+          !Array.isArray(claimedIds) ||
+          !claimedIds.every((eventId: unknown) => typeof eventId === 'string')
+        ) {
+          throw new TypeError('Claim worker returned invalid event ids.');
+        }
+        resolve(claimedIds);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
 }
 
 describe('SqliteDatabaseAdapter', () => {
@@ -289,6 +356,19 @@ describe('SqliteDatabaseAdapter', () => {
     expect(duplicateClaim).toEqual([]);
   });
 
+  it('implements claims as a single conditional UPDATE with RETURNING', () => {
+    const source = readFileSync(new URL('./sqlite.adapter.ts', import.meta.url), 'utf8');
+    const claimMethod = source.slice(
+      source.indexOf('public async claimDueEvents'),
+      source.indexOf('public async recoverStaleLeases'),
+    );
+
+    expect(claimMethod).toMatch(/UPDATE webhook_events[\s\S]*WHERE id IN \([\s\S]*SELECT id/);
+    expect(claimMethod).toMatch(/RETURNING \*/);
+    expect(claimMethod.match(/\.prepare\(/g)).toHaveLength(1);
+    expect(claimMethod).not.toContain('.transaction(');
+  });
+
   it('does not double-claim an event across two SQLite connections', async () => {
     const secondAdapter = await SqliteDatabaseAdapter.open(databasePath);
     await adapter.upsertEvent(createEvent());
@@ -300,6 +380,45 @@ describe('SqliteDatabaseAdapter', () => {
 
     expect(claims.flat()).toHaveLength(1);
     secondAdapter.close();
+  });
+
+  it('does not double-claim due events across independent worker processes', async () => {
+    const eventCount = 24;
+    const workerIds = ['process-1', 'process-2', 'process-3', 'process-4'];
+    for (let index = 0; index < eventCount; index += 1) {
+      await adapter.upsertEvent(
+        createEvent({
+          id: `event-${index.toString().padStart(2, '0')}`,
+          idempotencyKey: `key-${index}`,
+        }),
+      );
+    }
+
+    const batches = await Promise.all(
+      workerIds.map((workerId) => claimFromSeparateProcess(databasePath, workerId)),
+    );
+    const claimedIds = batches.flat();
+    const events = await adapter.listEvents({ clientId: 'client-1', limit: 100 });
+
+    expect(batches.map((batch) => batch.length)).toEqual([6, 6, 6, 6]);
+    expect(new Set(claimedIds).size).toBe(eventCount);
+    expect(claimedIds).toHaveLength(eventCount);
+    for (const [index, workerId] of workerIds.entries()) {
+      const claimedByWorker = batches[index];
+      expect(claimedByWorker).toHaveLength(6);
+      for (const eventId of claimedByWorker ?? []) {
+        expect(events.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: eventId,
+              status: 'processing',
+              attemptCount: 1,
+              lockedBy: workerId,
+            }),
+          ]),
+        );
+      }
+    }
   });
 
   it('recovers expired leases and releases only the owning worker lease', async () => {
