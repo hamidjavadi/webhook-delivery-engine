@@ -10,6 +10,7 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: [
         'src/app/**/*.ts',
+        'src/features/delivery/**/*.ts',
         'src/features/ingestion/**/*.ts',
         'src/features/scheduler/**/*.ts',
         'src/security/**/*.ts',
@@ -21,6 +22,12 @@ export default defineConfig({
         functions: 80,
         statements: 80,
         'src/app/lifecycle.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/features/delivery/delivery.hmac.ts': {
           branches: 95,
           functions: 95,
           lines: 95,
