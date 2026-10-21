@@ -23,7 +23,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 - **Database Adapter:** Implement the canonical `DatabaseAdapter` contract using `better-sqlite3`; enable WAL and `busy_timeout=5000`, parameterize all SQL, and preserve idempotency, tenant-scoped reads, worker lease ownership, and atomic attempt/state transitions. PostgreSQL and MySQL are deferred to v2.0.
 - **Atomic Claim Mechanism:**
   - A single SQLite conditional `UPDATE ... RETURNING` statement per batch, selecting only due rows and ensuring no concurrent double-claim across worker processes per ADR-0001; the adapter contract remains driver-neutral.
-  - Stale claim recovery for worker crashes or network partitions.
+  - SQLite stale-lease recovery for worker crashes or network partitions: atomically transition only `processing` rows with `locked_at < now - max(timeoutLimitMs + 30000 ms, 90000 ms)` to `retry`, clear lease ownership, and set retry eligibility to `now + 10000 ms`. The adapter operation is WBS 2.7; the scheduler poll loop that invokes it is WBS 4.1.
 
 ### 2.2 Core Ingestion & Delivery Engine
 

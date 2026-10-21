@@ -440,16 +440,148 @@ describe('SqliteDatabaseAdapter', () => {
     ).resolves.toBe(false);
     await expect(
       adapter.recoverStaleLeases({
-        staleBefore: '2026-10-20T12:01:00.000Z',
-        recoveredAt: '2026-10-20T12:02:00.000Z',
-        nextRetryAt: '2026-10-20T12:03:00.000Z',
+        now: '2026-10-20T12:02:00.000Z',
+        timeoutLimitMs: 10_000,
       }),
     ).resolves.toBe(1);
     await expect(adapter.findEventById('event-1', 'client-1')).resolves.toMatchObject({
       status: 'retry',
-      nextRetryAt: '2026-10-20T12:03:00.000Z',
+      nextRetryAt: '2026-10-20T12:02:10.000Z',
+      updatedAt: '2026-10-20T12:02:00.000Z',
       lockedAt: null,
       lockedBy: null,
+    });
+  });
+
+  it('uses the 90-second minimum and leaves active or cutoff-equal leases unchanged', async () => {
+    const now = '2026-10-20T12:00:00.000Z';
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-expired',
+        idempotencyKey: 'key-expired',
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:58:29.999Z',
+        lockedBy: 'worker-expired',
+      }),
+    );
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-cutoff',
+        idempotencyKey: 'key-cutoff',
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:58:30.000Z',
+        lockedBy: 'worker-cutoff',
+      }),
+    );
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-active',
+        idempotencyKey: 'key-active',
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:59:00.000Z',
+        lockedBy: 'worker-active',
+      }),
+    );
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-pending',
+        idempotencyKey: 'key-pending',
+        status: 'pending',
+      }),
+    );
+
+    await expect(adapter.recoverStaleLeases({ now, timeoutLimitMs: 60_000 })).resolves.toBe(1);
+
+    await expect(adapter.findEventById('event-expired', 'client-1')).resolves.toMatchObject({
+      status: 'retry',
+      nextRetryAt: '2026-10-20T12:00:10.000Z',
+      lockedAt: null,
+      lockedBy: null,
+    });
+    await expect(adapter.findEventById('event-cutoff', 'client-1')).resolves.toMatchObject({
+      status: 'processing',
+      lockedBy: 'worker-cutoff',
+    });
+    await expect(adapter.findEventById('event-active', 'client-1')).resolves.toMatchObject({
+      status: 'processing',
+      lockedBy: 'worker-active',
+    });
+    await expect(adapter.findEventById('event-pending', 'client-1')).resolves.toMatchObject({
+      status: 'pending',
+      lockedAt: null,
+      lockedBy: null,
+    });
+  });
+
+  it('adds 30 seconds to request timeouts longer than 60 seconds', async () => {
+    const now = '2026-10-20T12:00:00.000Z';
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-over-limit',
+        idempotencyKey: 'key-over-limit',
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:58:29.998Z',
+        lockedBy: 'worker-expired',
+      }),
+    );
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'event-at-limit',
+        idempotencyKey: 'key-at-limit',
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:58:29.999Z',
+        lockedBy: 'worker-active',
+      }),
+    );
+
+    await expect(adapter.recoverStaleLeases({ now, timeoutLimitMs: 60_001 })).resolves.toBe(1);
+    await expect(adapter.findEventById('event-over-limit', 'client-1')).resolves.toMatchObject({
+      status: 'retry',
+      lockedAt: null,
+      lockedBy: null,
+    });
+    await expect(adapter.findEventById('event-at-limit', 'client-1')).resolves.toMatchObject({
+      status: 'processing',
+      lockedBy: 'worker-active',
+    });
+  });
+
+  it('rejects invalid timeout and clock inputs without changing leases', async () => {
+    await adapter.upsertEvent(
+      createEvent({
+        status: 'processing',
+        attemptCount: 1,
+        lockedAt: '2026-10-20T11:00:00.000Z',
+        lockedBy: 'worker-1',
+      }),
+    );
+
+    await expect(
+      adapter.recoverStaleLeases({
+        now: '2026-10-20T12:00:00.000Z',
+        timeoutLimitMs: 0,
+      }),
+    ).rejects.toThrow(/timeoutLimitMs/i);
+    await expect(
+      adapter.recoverStaleLeases({
+        now: 'not-a-timestamp',
+        timeoutLimitMs: 10_000,
+      }),
+    ).rejects.toThrow(/now/i);
+    await expect(
+      adapter.recoverStaleLeases({
+        now: '2026-10-20T12:00:00.000Z',
+        timeoutLimitMs: Number.MAX_SAFE_INTEGER,
+      }),
+    ).rejects.toThrow(/threshold/i);
+    await expect(adapter.findEventById('event-1', 'client-1')).resolves.toMatchObject({
+      status: 'processing',
+      lockedBy: 'worker-1',
     });
   });
 

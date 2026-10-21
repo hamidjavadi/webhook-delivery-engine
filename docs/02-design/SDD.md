@@ -96,7 +96,7 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
 | **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
 | **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
-| **Claim Scheduler** (WBS 2.6–2.7)      | Poll loop: batch-size atomic conditional claim of due rows (including stale-lease recovery); emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
+| **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
 | **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
 | **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
@@ -167,7 +167,9 @@ All writes are parameterized. JSON values are validated and serialized to JSON t
 
 Claiming uses the single-statement atomic conditional `UPDATE ... RETURNING` pattern from ADR-0001. The inner ordered limited subquery selects only due `pending`/`retry` rows; the same `UPDATE` sets `processing`, lease owner/time, increments the reserved attempt count, updates the timestamp, and returns each claimed event. It does not select candidate IDs into application memory or issue a separate update/read query, and does not require an explicit surrounding transaction because the SQLite statement itself is atomic. Per the approved WBS 2.6 design checkpoint, `ClaimDueEventsInput.now` supplies one validated UTC ISO-8601 reference timestamp used for due-time comparison, lease acquisition, and update time. This preserves the driver-neutral contract and avoids lexically comparing ISO-8601 text with SQLite's differently formatted `CURRENT_TIMESTAMP`; all claim decisions within a call use the same clock value.
 
-Stale-lease recovery only changes expired leases; release only changes a lease owned by the requesting worker and reverses its reserved attempt count. Attempt insertion and the corresponding terminal/retry event transition are one `BEGIN IMMEDIATE` transaction: validate the current lease and next attempt ordinal, append the audit row, update state and retry time, and clear lease fields. A stale owner or invalid transition returns `false` without partial writes; database/serialization errors reject the operation.
+The SQLite adapter's stale-lease recovery accepts a caller-supplied UTC `now` and positive safe-integer `timeoutLimitMs`. It computes `staleThresholdMs = max(timeoutLimitMs + 30000, 90000)`, `staleBefore = now - staleThresholdMs`, and `nextRetryAt = now + 10000 ms`. A single parameterized `UPDATE` changes only rows with `status = 'processing' AND locked_at < staleBefore` to `retry`, clears `locked_at`/`locked_by`, and records the retry/update timestamps. The strict comparison preserves leases exactly at the cutoff; SQL statement atomicity prevents partial recovery. Invalid timeout or timestamp input rejects before writing. The adapter operation is implemented by WBS 2.7; the scheduler poll loop must call it once each cycle under WBS 4.1 and is not part of Task 2.7.
+
+Lease release only changes a lease owned by the requesting worker and reverses its reserved attempt count. Attempt insertion and the corresponding terminal/retry event transition are one `BEGIN IMMEDIATE` transaction: validate the current lease and next attempt ordinal, append the audit row, update state and retry time, and clear lease fields. A stale owner or invalid transition returns `false` without partial writes; database/serialization errors reject the operation.
 
 ### 4.5 Migration Policy
 
@@ -242,6 +244,8 @@ sequenceDiagram
     participant Work as Delivery Worker
     participant HMAC as HMAC Module
     participant Cons as Webhook Consumer
+    Sched->>DB: Recover stale leases (now, timeoutLimitMs)
+    DB-->>Sched: recovered row count
     Sched->>DB: Conditional UPDATE claim (due rows -> processing, locked_at, locked_by)
     DB-->>Sched: batch of claimed events (exactly-once per claim)
     Sched->>Work: dispatch(event)
@@ -258,9 +262,11 @@ sequenceDiagram
     end
 ```
 
-### 6.3 Stale-Lease Recovery Flow (FR-5, AC9)
+### 6.3 Stale-Lease Recovery Flow (FR-5, AC9; ADR-0002)
 
-On each poll cycle the scheduler additionally claims rows where `status = 'processing' AND locked_at < now - staleThreshold`, resetting them to `retry` with a fresh claim; this recovers worker crashes and bounds the at-least-once duplicate window. The final stale-claim mechanism (lease heartbeat vs. reset-on-start) is ratified at the design checkpoint and recorded as an ADR.
+The caller supplies one UTC reference time and the active `timeoutLimitMs` to the SQLite adapter. The adapter derives `staleThresholdMs = max(timeoutLimitMs + 30000, 90000)` and recovers only processing leases strictly older than `now - staleThresholdMs`. In one parameterized atomic `UPDATE`, it sets `status = 'retry'`, clears `locked_at` and `locked_by`, sets `next_retry_at = now + 10000 ms`, and updates the row timestamp. Active leases, rows at the cutoff, and rows not in `processing` are unchanged. Recovery errors propagate; invalid inputs are rejected before any write. Recovery returns the number of rows updated.
+
+WBS 2.7 implements this adapter operation and its threshold/boundary tests. The WBS 4.1 scheduler poll loop is responsible for calling recovery once per cycle before claiming due events. This task does not implement that loop. The operation uses the supplied UTC reference time rather than SQLite's clock so cutoff and retry boundaries are deterministic and remain consistent with the adapter's ISO-8601 timestamp contract.
 
 **Invariants:** no two live workers hold a claim on the same event (AC3); no attempt beyond `maxAttempts`; no retries after a terminal state (FR-16); every attempt is recorded before the next status transition (AC10).
 
@@ -333,7 +339,7 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 | Delivery semantics     | At-least-once with consumer deduplication by system `id`                                     | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)           |
 | Retry policy           | Bounded exponential backoff with **full jitter**                                             | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                             |
 | Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
-| Stale-lease recovery   | Scheduler-driven stale-claim sweep each poll cycle                                           | Heartbeat-only leases — extra write amplification; mechanism finalized at design checkpoint (ADR required)             |
+| Stale-lease recovery   | Scheduler invokes the SQLite adapter's atomic stale-lease sweep each poll cycle (WBS 4.1); threshold is `max(timeoutLimitMs + 30000 ms, 90000 ms)` and retry delay is 10 seconds (ADR-0002) | Heartbeat-only leases — extra write amplification; 2.7 adapter implementation is deliberately separate from the WBS 4.1 poll loop |
 | Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 
 **Related ADRs:** ADR-0001 SQLite atomic-claim pattern; ADR-0002 stale-lease recovery mechanism; ADR-0003 SQLite migration runner selection; ADR-0004 non-retryable 4xx classification. Future database dialects require separate design and validation.
@@ -358,10 +364,9 @@ src/
 │   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
 │   │   ├── ingestion.service.ts       # Upsert + WEBHOOK_URL fallback logic
 │   │   └── ingestion.test.ts          # Unit/integration tests (AC1/AC2)
-│   ├── scheduler/             # WBS 2.6–2.7 — claim loop and stale-lease recovery
+│   ├── scheduler/             # WBS 4.1 — poll loop and claim coordination
 │   │   ├── scheduler.loop.ts          # Poll cycle, batch-size claim dispatch
 │   │   ├── scheduler.claim.ts         # Atomic conditional UPDATE claim (ADR-0001)
-│   │   ├── scheduler.recovery.ts      # Stale-lease sweep (ADR-0002, FR-5)
 │   │   ├── scheduler.config.ts        # Poll interval / batch size accessors
 │   │   └── scheduler.test.ts          # ≥ 100 parallel claims, zero double-claims (AC3)
 │   ├── delivery/              # WBS 5.x — outbound dispatch

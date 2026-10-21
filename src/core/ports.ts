@@ -26,15 +26,18 @@ export interface ClaimDueEventsInput {
 }
 
 /**
- * Parameters for returning expired processing leases to the retry queue.
+ * Parameters for atomically returning expired processing leases to the retry
+ * queue.
+ *
+ * The adapter calculates the cutoff as
+ * `now - max(timeoutLimitMs + 30000, 90000)` and schedules recovered events
+ * for `now + 10000` milliseconds. A lease exactly at the cutoff is not stale.
  */
 export interface RecoverStaleLeasesInput {
-  /** Leases strictly older than this UTC time are considered stale. */
-  readonly staleBefore: Timestamp;
-  /** UTC time at which the recovery state change is recorded. */
-  readonly recoveredAt: Timestamp;
-  /** Earliest time recovered events may be claimed again. */
-  readonly nextRetryAt: Timestamp;
+  /** UTC reference time used for the cutoff and retry schedule. */
+  readonly now: Timestamp;
+  /** Configured per-request timeout in milliseconds; must be a positive safe integer. */
+  readonly timeoutLimitMs: number;
 }
 
 /**
@@ -159,7 +162,8 @@ export interface DatabaseAdapter {
    * Atomically returns processing events with expired leases to the retry
    * queue and clears their lease fields.
    *
-   * @param input Staleness cutoff and recovery/retry timestamps.
+   * @param input UTC reference time and per-request timeout used to derive the
+   * stale cutoff and retry schedule.
    * @returns The number of leases recovered.
    */
   recoverStaleLeases(input: RecoverStaleLeasesInput): Promise<number>;

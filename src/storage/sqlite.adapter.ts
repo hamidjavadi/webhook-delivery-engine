@@ -188,9 +188,24 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
 
   /** @inheritdoc */
   public async recoverStaleLeases(input: RecoverStaleLeasesInput): Promise<number> {
-    const staleBefore = normalizeTimestamp(input.staleBefore, 'staleBefore');
-    const recoveredAt = normalizeTimestamp(input.recoveredAt, 'recoveredAt');
-    const nextRetryAt = normalizeTimestamp(input.nextRetryAt, 'nextRetryAt');
+    const now = normalizeTimestamp(input.now, 'now');
+    if (!Number.isSafeInteger(input.timeoutLimitMs) || input.timeoutLimitMs <= 0) {
+      throw new RangeError('timeoutLimitMs must be a positive safe integer.');
+    }
+
+    const staleThresholdMs = Math.max(input.timeoutLimitMs + 30_000, 90_000);
+    if (!Number.isSafeInteger(staleThresholdMs)) {
+      throw new RangeError('timeoutLimitMs produces an unsafe stale lease threshold.');
+    }
+    const nowMilliseconds = Date.parse(now);
+    const staleBefore = normalizeTimestamp(
+      new Date(nowMilliseconds - staleThresholdMs).toISOString(),
+      'staleBefore',
+    );
+    const nextRetryAt = normalizeTimestamp(
+      new Date(nowMilliseconds + 10_000).toISOString(),
+      'nextRetryAt',
+    );
     const result = this.database
       .prepare(
         `UPDATE webhook_events
@@ -198,7 +213,7 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
              locked_by = NULL, updated_at = ?
          WHERE status = 'processing' AND locked_at < ?`,
       )
-      .run(nextRetryAt, recoveredAt, staleBefore);
+      .run(nextRetryAt, now, staleBefore);
     return result.changes;
   }
 
