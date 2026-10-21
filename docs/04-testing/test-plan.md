@@ -3,7 +3,7 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, and 2.6: core domain contracts,
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, and 2.7: core domain contracts,
   SQLite schema/migrations, the better-sqlite3 storage adapter, and its
   single-statement atomic claim. PostgreSQL and MySQL are deferred to v2.0 and
   are not part of v1.0 validation.
@@ -24,6 +24,12 @@ logic remain outside this scope.
 For Task 2.6, verify the claim executes as one conditional `UPDATE ... RETURNING`
 statement and run competing independent processes against a shared temporary
 SQLite file; every event id must be returned to at most one worker.
+For Task 2.7, verify the adapter computes the stale cutoff from
+`max(timeoutLimitMs + 30000 ms, 90000 ms)` using the supplied UTC `now`, resets
+only strictly expired `processing` leases, clears lease fields, schedules
+retry at `now + 10000 ms`, rejects invalid inputs without writes, and leaves
+active, cutoff-equal, and non-processing rows unchanged. Poll-loop invocation
+is deferred to WBS 4.1.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
@@ -55,6 +61,9 @@ SQLite file; every event id must be returned to at most one worker.
 | Due claims are exclusive and lease changes obey worker ownership | SQLite adapter integration tests |
 | One atomic `UPDATE ... RETURNING` statement selects due ordered rows, reserves attempts, stamps leases, and returns complete claimed events | `src/storage/sqlite.adapter.test.ts` |
 | Competing independent processes claim a shared due-event batch with zero duplicate ids and no attempt-count drift | `src/storage/sqlite.adapter.test.ts` |
+| Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
+| Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
+| Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
@@ -283,3 +292,27 @@ completion, append actual command results and the Go/No-Go decision here.
   times in a shell loop, and all five runs passed.
 - **Open bugs:** None identified in the approved SQLite atomic-claim scope.
 - **Go/No-Go:** Go for WBS Task 2.6 under the approved SQLite-only v1.0 scope.
+
+### Task 2.7 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; real temporary SQLite
+  databases through better-sqlite3.
+- **TDD red check:** Four stale-recovery tests failed against the old
+  cutoff/timestamp contract, confirming the missing dynamic threshold and
+  validation behavior before implementation.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (6 files, 52 tests).
+  Recovery tests cover the 90-second minimum, the timeout-plus-30-second
+  threshold above 60 seconds, strict cutoff behavior, active and non-processing
+  leases, 10-second retry scheduling, cleared lease fields, and invalid inputs
+  without writes.
+- **Coverage:** 96.32% overall lines/statements, 98.03% functions, and 90.04%
+  branches. The SQLite adapter measured 95.98% lines/statements, 97.67%
+  functions, and 89.18% branches.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier checks and `git diff --check` passed.
+- **Open bugs/limitations:** No adapter defects identified. WBS 4.1 must invoke
+  `recoverStaleLeases` once per poll cycle; Task 2.7 deliberately does not add
+  that poll loop.
+- **Go/No-Go:** Go for WBS Task 2.7's approved SQLite adapter recovery scope;
+  the scheduler integration remains outside this task.

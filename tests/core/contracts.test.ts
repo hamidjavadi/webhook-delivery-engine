@@ -124,6 +124,10 @@ describe('core domain contracts', () => {
       now: createdAt,
       limit: 1,
     });
+    const recovered = await adapter.recoverStaleLeases({
+      now: createdAt,
+      timeoutLimitMs: config.timeoutLimitMs,
+    });
     const recorded = await adapter.recordAttemptAndTransition({
       attempt,
       workerId: 'worker-1',
@@ -134,6 +138,7 @@ describe('core domain contracts', () => {
 
     expect(upsert.inserted).toBe(true);
     expect(claimed).toEqual([event]);
+    expect(recovered).toBe(0);
     expect(recorded).toBe(true);
   });
 
