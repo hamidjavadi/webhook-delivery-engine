@@ -60,7 +60,7 @@
 | Task ID | Task Description                           | Dependencies | Owner       | Est. | Acceptance Criteria                                                                                                                               | Status |
 | :------ | :----------------------------------------- | :----------- | :---------- | :--- | :------------------------------------------------------------------------------------------------------------------------------------------------ | :----- |
 | **4.1** | **Polling Loop & Batch Claim Coordinator** | 2.6, 2.7     | Backend Eng | 5h   | Run configurable poll cycles; recover stale leases before claiming at most the configured batch size; hand only claimed events to the worker seam; wait between empty polls; continue after reported transient adapter failures; idle CPU overhead < 10%. No OS signal handling or dispatch draining. | Done |
-| **4.2** | **Graceful Shutdown & Signal Handling**    | 4.1          | Backend Eng | 3h   | Clean SIGINT/SIGTERM lifecycle handling: in-flight requests finish or safely release leases; unclaims active batches.                             | Ready  |
+| **4.2** | **Graceful Shutdown & Signal Handling**    | 4.1          | Backend Eng | 3h   | Clean SIGINT/SIGTERM lifecycle handling: in-flight requests finish or safely release leases; unclaims active batches.                             | Done   |
 
 ---
 

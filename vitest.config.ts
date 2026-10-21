@@ -20,6 +20,12 @@ export default defineConfig({
         lines: 80,
         functions: 80,
         statements: 80,
+        'src/app/lifecycle.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
         'src/features/ingestion/ingestion.schema.ts': {
           branches: 95,
           functions: 95,
