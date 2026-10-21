@@ -23,8 +23,8 @@ We need a deterministic, low-overhead mechanism to automatically recover stale l
 ## Decision Factors
 
 1. **Reliability & Consistency:** Guarantee that no task remains permanently locked after a worker failure, bounded by a configured time window.
-2. **Database Performance & Write Amplification:** Avoid excessive write load (e.g., frequent heartbeat updates) that could degrade SQLite/PostgreSQL performance or trigger concurrency bottlenecks (`SQLITE_BUSY`).
-3. **Driver Agnosticism:** Maintain compatibility across single-node SQLite deployment and multi-node scaled setups.
+2. **Database Performance & Write Amplification:** Avoid excessive write load (e.g., frequent heartbeat updates) that could trigger SQLite concurrency bottlenecks (`SQLITE_BUSY`).
+3. **SQLite v1.0 Scope:** Keep recovery compatible with the single-node SQLite deployment; additional database engines are deferred to v2.0.
 4. **Operational Simplicity:** Keep the recovery logic transparent, testable, and straightforward to monitor via structured logging.
 
 ---
@@ -52,9 +52,8 @@ We have chosen **Option 3: Scheduler-Driven Stale-Claim Sweep**.
    During each scheduler poll cycle, execute a single atomic SQL statement to reclaim stale leases:
 
 ```sql
-UPDATE webhook_deliveries
+UPDATE webhook_events
    SET status = 'retry',
-      attempts = attempts + 1,
       locked_at = NULL,
       locked_by = NULL,
       next_retry_at = datetime('now', '+10 seconds')

@@ -3,28 +3,28 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2 and 2.1: core domain contracts and initial raw SQL
-  schema definitions for SQLite, PostgreSQL, and MySQL.
+- **Scope:** WBS Tasks 1.2, 2.1, and 2.2: core domain contracts, the SQLite raw
+  schema, and the in-house SQLite migration runner. PostgreSQL and MySQL are
+  deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
 
 Verify that immutable event and attempt types represent the approved SDD fields,
 that the adapter contract exposes persistence operations with tenant and lease
 boundaries, and that configuration can express bounded concurrency, timeouts,
-and retry policy. Verify fresh SQLite schema creation and inspection, constraints
-and indexes, and static DDL contracts for the unconfigured PostgreSQL/MySQL
-targets. Database-driver adapters, runtime configuration parsing, and delivery
-logic remain outside this scope.
+and retry policy. Verify fresh SQLite schema creation and inspection,
+constraints and indexes. Verify migration ordering, checksum ledger, idempotent
+reapplication, drift and missing-file detection, SQLite transactional rollback,
+and startup ordering. Database-driver adapters, runtime configuration parsing,
+and delivery logic remain outside this scope.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`.
-- **Integration:** Node's built-in `node:sqlite` applies the SQLite migration
-  to a fresh in-memory database inside a transaction; schema inspection verifies columns,
-  indexes, foreign keys, and constraints. PostgreSQL and MySQL SQL is checked
-  with deterministic static assertions until those database services and
-  drivers are introduced by their adapter tasks.
+- **Integration:** Node's built-in `node:sqlite` applies migrations to fresh
+  in-memory and on-disk databases. These local tests require no external DB
+  services or test credentials.
 - **E2E:** Not applicable; no running application or transport exists yet.
 
 ## Test Cases and Acceptance-Criteria Traceability
@@ -38,8 +38,9 @@ logic remain outside this scope.
 | SQLite initial migration runs from scratch and registers in `schema_migrations` | SQLite migration script |
 | SQLite due-event and unique attempt indexes have the required column order | Schema inspection |
 | SQLite enforces per-client idempotency, attempt ordinal uniqueness, foreign keys, and cascade | Schema constraints |
-| PostgreSQL and MySQL DDL include approved state sets, FKs, and composite indexes | Static dialect checks |
-| MySQL uses `VARCHAR(255)` tenant-scoped uniqueness | MySQL migration and SDD mapping |
+| SQLite migrations apply in version order, record checksums, and skip on re-run | `src/storage/migrations/runner.test.ts` |
+| Drifted checksums and applied versions missing from disk are rejected | Migration ledger validation |
+| Application start callback runs only after migrations succeed | `src/app/bootstrap.test.ts` |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
 
 ## Environment, Data, and Prerequisites
@@ -47,12 +48,12 @@ logic remain outside this scope.
 Run with the repository's pnpm lockfile, Node.js version from `.nvmrc` (Node
 24+ per `package.json`), and installed project dependencies including the
 Node.js `node:sqlite` support. Fixtures use synthetic identifiers, a reserved
-`.example` destination, and no credentials or external services. PostgreSQL and
-MySQL service instances are not configured in this repository.
+`.example` destination, and no credentials or external services.
 
 ## Tools and Test Execution
 
 - `pnpm test`
+- `pnpm exec vitest run --coverage`
 - `pnpm exec tsc --noEmit --project tsconfig.json`
 - `pnpm lint`
 - `pnpm exec prettier --check` on changed TypeScript and Markdown files
@@ -60,25 +61,24 @@ MySQL service instances are not configured in this repository.
 ## Security, Accessibility, Performance, and Regression
 
 Review tenant idempotency uniqueness, state/status constraints, lease field
-consistency, FK cascade behavior, and the 1 KB response-snippet bound. SQLite
-integration uses an in-memory DB only. Static PostgreSQL/MySQL checks do not
-replace later live adapter integration testing. Accessibility and performance
-testing do not apply to these schema contracts.
+consistency, FK cascade behavior, checksums, and transaction rollback after partial DDL. SQLite unit/integration tests use isolated in-memory or temporary on-disk databases. PostgreSQL/MySQL checks are out of v1.0 scope. Accessibility
+and performance testing do not apply to these storage contracts.
 
 ## Coverage: minimum 80% overall, 95% for critical paths
 
 The repository-wide thresholds remain 80% overall and 95% on critical paths.
-This task primarily adds SQL declarations; coverage is reported only for
-executable testable code and is not inferred from schema files or static SQL
-assertions. No coverage exception is claimed.
+Coverage applies to executable runner and bootstrap code; SQL declarations are
+not treated as executable source. Record the measured result or report a
+coverage-tooling limitation without treating an unmeasured threshold as met.
 
 ## Entry/Exit Criteria and Go/No-Go
 
 - **Entry:** Approved SDD contract boundary, existing strict TypeScript and
   Vitest configuration, Node `node:sqlite` support, and pre-implementation tests.
-- **Exit:** Full applicable tests (including fresh SQLite schema inspection),
-  static dialect assertions, strict type-check, formatter, and lint pass; no
-  duplicate contract definitions are introduced.
+- **Exit:** Full applicable tests (including fresh SQLite runner/schema checks),
+  strict type-check, build, formatter, and lint pass; no duplicate contract
+  definitions are introduced. PostgreSQL/MySQL tests are scheduled with their
+  v2.0 implementation, not skipped as part of v1.0.
 - **Go/No-Go:** Go only after all applicable exit checks pass; otherwise report
   the exact failing command and keep the task open.
 
@@ -110,6 +110,11 @@ completion, append actual command results and the Go/No-Go decision here.
 
 ### Task 2.1 Results
 
+> Historical results below include static DDL checks for dialect files that
+> have since been removed from the v1.0 codebase. They are not current support
+> or validation claims; PostgreSQL/MySQL implementation and tests are deferred
+> to v2.0.
+
 - **Environment:** Node.js v24.16.0; pnpm 10.4.1; Node `node:sqlite` SQLite
   v3.53.0.
 - **TDD red check:** Before migration files were added,
@@ -139,3 +144,53 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Open bugs:** None found within the approved DDL scope.
 - **Go/No-Go:** Go for Task 2.1 under the approved SQLite-live and
   PostgreSQL/MySQL-static verification scope.
+
+### Task 2.2 Results
+
+> Historical results below describe the earlier multi-dialect implementation
+> and are superseded by the v1.0 SQLite-only support decision. Current
+> SQLite-only validation is recorded in the latest scope-alignment result.
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; SQLite via Node's built-in
+  `node:sqlite`.
+- **TDD red checks:** The initial runner test failed because `runner.ts` was
+  absent. A later regression test failed because comment-only MySQL SQL was
+  incorrectly eligible for ledger recording; the parser was corrected to
+  reject files without executable statements.
+- **Final tests:** `pnpm test` passed (4 files, 28 passed); the 2 optional live
+  PostgreSQL/MySQL integration tests were skipped because their test URLs are
+  not configured.
+- **Coverage:** `pnpm exec vitest run --coverage` passed the configured
+  executable-source thresholds: 98.67% lines/statements, 100% functions, and
+  92.92% branches overall. The migration runner has 98.64% line coverage,
+  100% function coverage, and 92.79% branch coverage.
+- **Build/type-check:** `pnpm build` and
+  `pnpm exec tsc --noEmit --project tsconfig.json` passed. The build verified
+  that all three dialect SQL files are copied alongside the compiled runner.
+- **Lint/format/diff:** `pnpm lint`, Prettier checks, and `git diff --check`
+  passed.
+- **Limitations:** No PostgreSQL/MySQL test services were configured, so their
+  environment-gated live integration runs remain unverified here. Unit tests
+  exercise PostgreSQL transaction/rollback behavior and MySQL statement
+  splitting/ledger failure behavior; SQL DDL contracts are also statically
+  checked.
+- **Open bugs:** None identified within the approved runner and startup-seam
+  scope.
+- **Go/No-Go:** Go for Task 2.2 under the approved conditional live-database
+  test scope.
+
+### v1.0 Database-Scope Alignment Results
+
+- **Scope change:** PostgreSQL/MySQL driver support, migration code, SQL files,
+  and related live/static tests were removed from the v1.0 runtime and deferred
+  to v2.0. SQLite migration and schema tests remain active.
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1.
+- **Tests:** `pnpm test` passed (5 files, 20 tests); SQLite migration runner,
+  startup ordering, and schema inspection tests passed.
+- **Coverage:** `pnpm exec vitest run --coverage` passed configured thresholds:
+  97.35% statements/lines, 100% functions, and 92.59% branches overall.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier check and `git diff --check` passed.
+- **Go/No-Go:** Go for SQLite-only v1.0 database support; PostgreSQL/MySQL
+  implementation and validation remain deferred to v2.0.

@@ -2,6 +2,8 @@
 
 A lightweight, embeddable Node.js & TypeScript library for reliable, idempotent webhook delivery with persistent retries.
 
+**Database support:** v1.0.0 supports SQLite only. PostgreSQL and MySQL are deferred to v2.0.
+
 ---
 
 ## Key Goals
@@ -32,13 +34,14 @@ pnpm install
 
 ### 2. Configure Environment
 
-Create a .env file in the root directory:
+Copy `.env.example` to `.env` and configure the application values:
 
+```dotenv
 PORT=3000
 NODE_ENV=development
 LOG_LEVEL=info
-DATABASE_PATH=./src/data/webhook_engine.db
-WEBHOOK_URL=https://example.com/webhook
+DATABASE_URL=./data/webhook-delivery-engine.db
+```
 
 ### 3. Run Development Server
 
