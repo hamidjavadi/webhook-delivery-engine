@@ -269,6 +269,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 | AC12 | Given a tampered/forged request scenario (wrong key, unsigned delivery), it is rejected/absent — no unauthenticated ingress, no unsigned egress.                                                                                                                                                       | Security test suite (G5)                                       |
 | AC13 | Vitest suite passes; coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).                                                                                                                                                                        | `pnpm test` coverage report (G8)                               |
 | AC14 | Outbound SSRF Protection: Destination URLs resolving to loopback (`127.0.0.1`, `localhost`), private RFC 1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local, or cloud metadata endpoints (`169.254.169.254`) are rejected immediately without dispatching any network request. | Security test suite (NFR-S6)                                   |
+| AC15 | Given a configured SQLite database, when the adapter is opened and used, then WAL and `busy_timeout=5000` are active; events and attempts round-trip with JSON text and ISO-8601 timestamps; adapter operations preserve tenant scoping, idempotency, lease ownership, and atomic attempt/state transitions. | better-sqlite3 integration tests |
 
 ---
 

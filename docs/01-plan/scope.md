@@ -20,7 +20,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 - **Dual-Table Schema:**
   - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, authenticated `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
   - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
-- **Database Adapter:** Clean abstraction layer supporting SQLite (`better-sqlite3`) with WAL mode. (PostgreSQL and MySQL are deferred to v2.0).
+- **Database Adapter:** Implement the canonical `DatabaseAdapter` contract using `better-sqlite3`; enable WAL and `busy_timeout=5000`, parameterize all SQL, and preserve idempotency, tenant-scoped reads, worker lease ownership, and atomic attempt/state transitions. PostgreSQL and MySQL are deferred to v2.0.
 - **Atomic Claim Mechanism:**
   - A SQLite conditional `UPDATE` claim operation ensuring no concurrent double-claim across workers; the adapter contract remains driver-neutral.
   - Stale claim recovery for worker crashes or network partitions.

@@ -3,9 +3,9 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, and 2.2: core domain contracts, the SQLite raw
-  schema, and the in-house SQLite migration runner. PostgreSQL and MySQL are
-  deferred to v2.0 and are not part of v1.0 validation.
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, and 2.3: core domain contracts, SQLite
+  schema/migrations, and the better-sqlite3 storage adapter. PostgreSQL and
+  MySQL are deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
 
@@ -15,16 +15,20 @@ boundaries, and that configuration can express bounded concurrency, timeouts,
 and retry policy. Verify fresh SQLite schema creation and inspection,
 constraints and indexes. Verify migration ordering, checksum ledger, idempotent
 reapplication, drift and missing-file detection, SQLite transactional rollback,
-and startup ordering. Database-driver adapters, runtime configuration parsing,
-and delivery logic remain outside this scope.
+and startup ordering. For Task 2.3, verify each DatabaseAdapter operation
+against a real better-sqlite3 database, including transaction rollback,
+concurrent claims, tenant isolation, lease-owner checks, JSON/timestamp mapping,
+and SQL-injection-shaped input. Runtime configuration parsing and delivery
+logic remain outside this scope.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`.
-- **Integration:** Node's built-in `node:sqlite` applies migrations to fresh
-  in-memory and on-disk databases. These local tests require no external DB
-  services or test credentials.
+- **Integration:** Node's built-in `node:sqlite` continues to verify the runner;
+  better-sqlite3 adapter tests use isolated temporary on-disk databases with
+  the native driver and real schema. No external DB service or credentials are
+  required.
 - **E2E:** Not applicable; no running application or transport exists yet.
 
 ## Test Cases and Acceptance-Criteria Traceability
@@ -41,14 +45,24 @@ and delivery logic remain outside this scope.
 | SQLite migrations apply in version order, record checksums, and skip on re-run | `src/storage/migrations/runner.test.ts` |
 | Drifted checksums and applied versions missing from disk are rejected | Migration ledger validation |
 | Application start callback runs only after migrations succeed | `src/app/bootstrap.test.ts` |
+| Adapter startup enables WAL/foreign keys, sets `busy_timeout=5000`, and applies migrations | `src/storage/sqlite.adapter.test.ts` |
+| Upsert and event reads preserve tenant-scoped idempotency and JSON/ISO timestamp mappings | SQLite adapter integration tests |
+| Event listing orders stably, scopes tenants, and enforces a maximum page size of 1,000 | SQLite adapter integration tests |
+| Due claims are exclusive and lease changes obey worker ownership | SQLite adapter integration tests |
+| Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
+| All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
 
 ## Environment, Data, and Prerequisites
 
 Run with the repository's pnpm lockfile, Node.js version from `.nvmrc` (Node
-24+ per `package.json`), and installed project dependencies including the
-Node.js `node:sqlite` support. Fixtures use synthetic identifiers, a reserved
-`.example` destination, and no credentials or external services.
+24+ per `package.json`), and installed project dependencies including a
+working better-sqlite3 native binding and Node.js `node:sqlite` support. The
+repository explicitly permits the better-sqlite3 install script through
+`pnpm.onlyBuiltDependencies`; `node-gyp` is a development dependency for
+building the binding when a matching prebuilt binary is unavailable. Fixtures
+use synthetic identifiers, a reserved `.example` destination, and no
+credentials or external services.
 
 ## Tools and Test Execution
 
@@ -61,20 +75,25 @@ Node.js `node:sqlite` support. Fixtures use synthetic identifiers, a reserved
 ## Security, Accessibility, Performance, and Regression
 
 Review tenant idempotency uniqueness, state/status constraints, lease field
-consistency, FK cascade behavior, checksums, and transaction rollback after partial DDL. SQLite unit/integration tests use isolated in-memory or temporary on-disk databases. PostgreSQL/MySQL checks are out of v1.0 scope. Accessibility
+consistency, FK cascade behavior, checksums, transaction rollback after partial
+DDL, and parameter binding. SQLite tests use isolated in-memory or temporary
+on-disk databases. PostgreSQL/MySQL checks are out of v1.0 scope. Accessibility
 and performance testing do not apply to these storage contracts.
 
 ## Coverage: minimum 80% overall, 95% for critical paths
 
 The repository-wide thresholds remain 80% overall and 95% on critical paths.
-Coverage applies to executable runner and bootstrap code; SQL declarations are
-not treated as executable source. Record the measured result or report a
-coverage-tooling limitation without treating an unmeasured threshold as met.
+Coverage applies to executable runner, adapter, and bootstrap code; the adapter
+and other critical storage operations target at least 95% coverage while
+repository-wide coverage remains at least 80%. SQL declarations are not treated
+as executable source. Record measured results or report a tooling limitation
+without treating an unmeasured threshold as met.
 
 ## Entry/Exit Criteria and Go/No-Go
 
 - **Entry:** Approved SDD contract boundary, existing strict TypeScript and
-  Vitest configuration, Node `node:sqlite` support, and pre-implementation tests.
+  Vitest configuration, Node `node:sqlite` support, working better-sqlite3
+  native binding, and pre-implementation tests.
 - **Exit:** Full applicable tests (including fresh SQLite runner/schema checks),
   strict type-check, build, formatter, and lint pass; no duplicate contract
   definitions are introduced. PostgreSQL/MySQL tests are scheduled with their
@@ -194,3 +213,36 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Formatting/diff:** Prettier check and `git diff --check` passed.
 - **Go/No-Go:** Go for SQLite-only v1.0 database support; PostgreSQL/MySQL
   implementation and validation remain deferred to v2.0.
+
+### Task 2.3 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; better-sqlite3 11.10.0 on
+  temporary on-disk SQLite databases.
+- **Native driver setup:** pnpm initially ignored the better-sqlite3 install
+  script and no Node 24 prebuilt binary was available. With explicit approval,
+  `better-sqlite3` was added to `pnpm.onlyBuiltDependencies`, `node-gyp` was
+  added as a development dependency, and the native binding compiled
+  successfully.
+- **TDD red checks:** Adapter tests first failed because the implementation
+  module did not exist. Regression tests then exposed an incorrect `inserted`
+  result for a repeated upsert, permissive non-ISO timestamp parsing, and
+  failure to reject in-memory SQLite when WAL could not be enabled. A due-claim
+  test also caught a pending row with a future retry time being claimed early.
+  Each behavior was corrected and the tests passed.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (6 files, 47 tests),
+  including 27 adapter integration tests using the actual better-sqlite3
+  driver.
+- **Coverage:** 96.65% overall lines/statements, 98.03% functions, and 90.81%
+  branches. The adapter measured 96.42% lines/statements, 97.67% functions,
+  and 90.20% branches. Critical adapter line and function coverage exceeded
+  95%; the branch result is recorded separately because defensive branches for
+  invalid SQLite row shapes cannot all be produced through the strict schema.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier check and `git diff --check` passed.
+- **Limitations:** PostgreSQL/MySQL remain deferred to v2.0. The adapter test
+  suite uses real SQLite files and validates transaction rollback, tenant
+  isolation, SQL parameter binding, lease ownership, pagination, and startup
+  pragmas.
+- **Open bugs:** None identified in the approved SQLite adapter scope.
+- **Go/No-Go:** Go for WBS Task 2.3 under the approved SQLite-only v1.0 scope.

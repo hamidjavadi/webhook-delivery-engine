@@ -2,7 +2,7 @@
 
 **Project:** Webhook Delivery Engine  
 **Release Target:** v1.0.0  
-**Status:** Approved / Ready for SDD (System Design Document)  
+**Status:** Approved / SDD Approved
 **Schema Standard:** `[ID] Deliverable / Task | Dependencies | Owner | Estimate | Acceptance Criteria | Status`
 
 ---
@@ -37,7 +37,7 @@
 | :------ | :------------------------------------ | :------------ | :------------- | :--- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----- |
 | **2.1** | **DDL Schema Definitions**            | 1.2           | Data Eng       | 4h   | `webhook_events` & `webhook_event_attempts` DDL specs written for SQLite with explicit composite indexes on `(status, next_retry_at)` and `(event_id, attempt_number)`.                                                                                   | Done   |
 | **2.2** | **Migration Runner Subsystem**        | 2.1           | Data Eng       | 4h   | Idempotent migration runner applying DDL migrations cleanly without external CLI tools.                                                                                                                                                     | Done   |
-| **2.3** | **SQLite Adapter (`better-sqlite3`)** | 2.2           | Full-Stack Eng | 4h   | Full ACID execution, parameterized statements, synchronous WAL-mode support passing basic CRUD tests.                                                                                                                                                                            | Ready  |
+| **2.3** | **SQLite Adapter (`better-sqlite3`)** | 2.2           | Full-Stack Eng | 4h   | Implements all DatabaseAdapter operations with parameterized SQL, JSON/ISO timestamp round-trips, tenant/idempotency/lease invariants, WAL, busy_timeout=5000, and transactional claim/attempt state changes; verified with real SQLite integration tests. | Done |
 | **2.4** | **PostgreSQL Adapter (`pg`)**         | 2.2           | Full-Stack Eng | 4h   | Connection pooling, parameterized queries, and dialect-specific atomic upsert (`ON CONFLICT DO NOTHING`) verified.                                                                                                                                                               | Deferred to v2.0  |
 | **2.5** | **MySQL Adapter (`mysql2`)**          | 2.2           | Full-Stack Eng | 4h   | Parameterized queries, connection pooling, and atomic upsert (`INSERT IGNORE`) verified.                                                                                                                                                                                         | Deferred to v2.0  |
 | **2.6** | **Atomic Claim Query Integration**    | 2.3 | Lead Eng       | 6h   | SQLite conditional `UPDATE` query atomically claims eligible rows and sets `processing`, lease timestamp, and worker id without concurrent double-claims. | Ready  |

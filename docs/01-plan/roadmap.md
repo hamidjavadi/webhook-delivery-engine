@@ -14,7 +14,7 @@
   - `M1.1`: Strict Node.js (≥24) / TypeScript workspace configured with zero-tolerance linting.
   - `M1.2`: Core domain models (`WebhookEvent` with system-generated UUID, `AttemptRecord`, `DatabaseAdapter`) established.
   - `M1.3`: Unified schema definitions and built-in migration runner implemented.
-  - `M1.4`: SQLite driver (better-sqlite3) fully functional.
+  - `M1.4`: SQLite adapter (better-sqlite3) implements the DatabaseAdapter contract and passes real CRUD, idempotency, tenant-isolation, lease, and atomic-transition tests.
   - `M1.5`: Atomic conditional `UPDATE` claim mechanism and stale-lease reclamation implemented.
 - **Mapped WBS Items:** WBS 1.0 (1.1, 1.2), WBS 2.0 (2.1, 2.2, 2.3, 2.6, 2.7). WBS 2.4–2.5 are deferred to v2.0.
 - **Exit Criteria (DoD):** SQLite schema and migrations are active; single-statement atomic claim passes zero-double-claim validation under SQLite tests.
