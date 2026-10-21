@@ -2,7 +2,7 @@
 
 | Field            | Value                                                    |
 | ---------------- | -------------------------------------------------------- |
-| **Status**       | Approved (v1.0.0) — includes approved WBS 2.6 atomic-claim design |
+| **Status**       | Approved (v1.0.0); WBS 3.3 design proposal pending checkpoint |
 | **Owner**        | Product Engineer (Hamid Javadi)                          |
 | **Date**         | 2026-10-15                                               |
 | **Version**      | 1.0.0                                                    |
@@ -82,7 +82,7 @@ flowchart LR
 
 ### 2.3 Data Flow Summary
 
-Ingestion path (synchronous, fast): request → auth (constant-time) → validation (schema + SSRF URL check) → single-statement atomic upsert on `UNIQUE(client_id, idempotency_key)` → `202 Accepted` with `{ id, idempotency_key, idempotent_replay }`. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
+Ingestion path (synchronous, fast): a transport or embedded caller supplies the parsed request and authentication result to the application handler → handler checks authentication, validates the strict request schema, resolves and SSRF-validates the effective destination, constructs a server-owned event, and calls the adapter's atomic upsert on `UNIQUE(client_id, idempotency_key)` → returns an application-level 202 result with `{ id, idempotency_key, idempotent_replay, status: "pending" }`. WBS 3.3 does not register routes, parse raw HTTP bodies, or start a server. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
 
 ---
 
@@ -95,7 +95,7 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
 | **Auth Middleware** (WBS 3.1)          | Validates one configured API key using SHA-256 fixed-length digests and `crypto.timingSafeEqual`; returns the configured `clientId` on success and a uniform unauthorized result otherwise. HTTP transport maps that result to 401. | Auth configuration               |
 | **Validator / SSRF Guard** (WBS 3.2)   | Strict Zod ingestion-body schema and absolute-HTTPS URL validation; resolves hostnames and rejects any unsafe IPv4/IPv6 answer before dispatch. Uses Node built-ins and fails closed on lookup errors or empty results. | Domain Types, Node DNS/net, Zod |
-| **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
+| **Ingestion Handler** (WBS 3.3)        | Accepts parsed input and an auth result; rejects unauthenticated or invalid requests before persistence, uses validated configured `WEBHOOK_URL` only when destination is omitted, constructs a server-owned pending event, and calls the atomic upsert. Returns the existing system id on replay without overwriting the accepted event. It is not an HTTP route/server. | DatabaseAdapter, Auth, Validator, configuration |
 | **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
 | **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
 | **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
@@ -191,7 +191,7 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 
 - **Request body:** `{ "idempotency_key": string (non-empty, required), "payload": JSON (required), "destination_url": string (optional; defaults to configured WEBHOOK_URL) }`. The schema is strict and rejects unknown properties; `client_id` is derived from authenticated identity, and the client MUST NOT supply `id` or timestamps (FR-18). The payload must be recursively JSON-compatible (finite numbers, strings, booleans, null, arrays, and string-keyed objects).
 - **Success:** `202 Accepted` with `{ "id": <system UUID>, "idempotency_key": <key>, "idempotent_replay": true|false, "status": "pending" }` (FR-2).
-- **Errors:** `401 Unauthorized` (missing/invalid key, FR-9); `400 Bad Request` (schema violation); `422 Unprocessable Entity` (SSRF-blocked URL); `429 Too Many Requests` (fixed-window rate limit, NFR-S5); `503` on storage unavailability (NFR-R3 — scheduler/host never crashes).
+- **Errors:** `401 Unauthorized` (missing/invalid key, FR-9); `400 Bad Request` (schema violation); `422 Unprocessable Entity` (invalid/unsafe caller-supplied URL); `429 Too Many Requests` (fixed-window rate limit, NFR-S5); `503` on storage unavailability (NFR-R3). WBS 3.3 implements the internal handler contract, not this route or wire-level response mapping.
 - **Idempotency:** enforced by a single-statement atomic upsert against `UNIQUE(client_id, idempotency_key)`; concurrent duplicate submissions (≥ 1000 parallel, AC2) yield exactly one row and `idempotent_replay: true` on replays.
 
 ### 5.2 `GET /webhooks` — List Events
@@ -232,25 +232,60 @@ IP literals are canonicalized by URL parsing and classified directly without DNS
 
 This preflight lookup is not an address pin. DNS can change between validation and connection, so WBS 5.2 must revalidate and bind the connection to a safe resolved address, and redirects must be disabled or every redirect target must receive the same validation. WBS 3.2 does not implement dispatch, TLS configuration, or redirect handling. Unit tests mock the DNS boundary and make no external DNS/network requests.
 
+### 5.8 Idempotent Ingestion Handler Contract (WBS 3.3; FR-1, FR-2, FR-18; AC1, AC2)
+
+`src/features/ingestion/ingestion.handler.ts` exports the application handler. It receives a `DatabaseAdapter`, an `ApiKeyAuthenticationResult`, an untrusted parsed request body (`unknown`), and the configured fallback `WEBHOOK_URL`. It does not parse raw JSON, extract headers, authenticate a token itself, register an HTTP route, or start a server. HTTP transport and embedded callers must use the same handler contract.
+
+The handler processes input in this order:
+
+1. Return the common `401` unauthorized result immediately when authentication failed; do not validate destination DNS or call the adapter.
+2. Validate the parsed body with `ingestionRequestSchema.safeParse`. Reject unknown fields, caller-supplied identity, and malformed payloads with a generic `400 invalid_request` result that does not echo the payload or schema internals.
+3. Select the supplied `destination_url` or, only when omitted, configured `WEBHOOK_URL`; run the selected URL through `validateDestinationUrl`. A rejected caller-supplied destination returns generic `422 invalid_destination`. A rejected configured fallback returns generic `500 invalid_default_destination` because this is an engine configuration fault, not a client input fault. Both paths stop before persistence; resolver details and addresses are never included in results.
+4. Construct a `WebhookEvent` using `randomUUID()` for `id`, the authenticated `clientId`, the schema-validated idempotency key and payload, the canonical validated destination, empty metadata and event-specific headers, `status: 'pending'`, `attemptCount: 0`, null retry/lease fields, and one server-generated UTC timestamp for `createdAt` and `updatedAt`.
+5. Call `DatabaseAdapter.upsertEvent` once. The adapter's unique constraint and atomic upsert are the concurrency boundary; the handler performs no check-then-insert, in-memory lock, or second persistence write. A rejected adapter promise propagates unchanged; it is not converted to a success-shaped result. The future HTTP transport maps storage failures to `503`.
+6. Return `{ statusCode: 202, body: { id, idempotency_key, idempotent_replay, status: 'pending' } }` using the stored event's id/key and `idempotent_replay: !inserted`. On replay, return the existing event id and do not overwrite the accepted payload, destination, or other stored state. `status: 'pending'` is the ingestion acknowledgment shape required by FR-18; it is not a live-state read if the event has since advanced, and status queries remain authoritative.
+
+The handler result is a discriminated union: success (`202`), unauthorized (`401`), invalid request (`400`), invalid caller destination (`422`), or invalid configured fallback (`500`). Database failures reject rather than forming a handler result and are translated to `503` by the eventual transport boundary. No rate limiting, route implementation, raw-body parsing, logging framework, or dispatcher behavior is added by WBS 3.3.
+
 ## 6. Key Flows
 
 ### 6.1 Idempotent Ingestion Flow
 
 ```mermaid
 sequenceDiagram
-    actor Client
-    participant API as Ingestion API
+    actor Caller
     participant Auth as Auth Middleware
-    participant Val as Validator/SSRF Guard
+    participant Handler as Ingestion Handler
+    participant Schema as Request Schema
+    participant Val as SSRF Validator
     participant DB as Database Adapter
-    Client->>API: POST /webhooks {idempotency_key, payload}
-    API->>Auth: Verify API key (timingSafeEqual)
-    Auth-->>API: client_id resolved / 401
-    API->>Val: Validate payload + destination URL
-    Val-->>API: OK / 400 / 422
-    API->>DB: Atomic upsert ON CONFLICT(client_id, idempotency_key) DO NOTHING
-    DB-->>API: inserted? + system id
-    API-->>Client: 202 {id, idempotency_key, idempotent_replay}
+    Caller->>Auth: Authenticate supplied API key
+    Auth-->>Caller: Authentication result with clientId or unauthorized
+    Caller->>Handler: Parsed body + auth result + configured fallback URL
+    alt authentication failed
+        Handler-->>Caller: 401 unauthorized
+    else authenticated
+        Handler->>Schema: safeParse(body)
+        alt invalid request
+            Schema-->>Handler: validation failure
+            Handler-->>Caller: 400 invalid_request
+        else valid request
+            Schema-->>Handler: validated request
+            Handler->>Val: Validate supplied URL or configured fallback
+            alt supplied destination invalid
+                Val-->>Handler: invalid destination
+                Handler-->>Caller: 422 invalid_destination
+            else configured fallback invalid
+                Val-->>Handler: invalid default destination
+                Handler-->>Caller: 500 invalid_default_destination
+            else valid destination
+                Val-->>Handler: canonical validated URL
+                Handler->>DB: Atomic tenant/key upsert
+                DB-->>Handler: stored event + inserted flag
+                Handler-->>Caller: 202 {id, idempotency_key, idempotent_replay, status: pending}
+            end
+        end
+    end
 ```
 
 ### 6.2 Claim, Deliver, and Retry Flow
@@ -333,12 +368,12 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 | Layer              | Tooling                        | Coverage target                                                                     |
 | ------------------ | ------------------------------ | ----------------------------------------------------------------------------------- |
 | Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, timing-safe auth     |
-| Integration        | Vitest + mock endpoints        | Ingestion idempotency (AC1/AC2), retry lifecycle (AC4–AC6), restart recovery (AC11) |
-| SQLite concurrency | Vitest × SQLite                | ≥ 100 parallel claims, zero double-claims (AC3)                                     |
+| Integration        | Vitest + mock endpoints        | Handler validation/result contract, ingestion idempotency (AC1/AC2), retry lifecycle (AC4–AC6), restart recovery (AC11) |
+| SQLite concurrency | Vitest × SQLite                | ≥ 100 parallel claims with zero double-claims (AC3); ≥ 1,000 same-tenant duplicate ingestion submissions with one row and stable id (AC2) |
 | Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
 | Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
 
-Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, HMAC, and SSRF validation paths (G8, AC13). SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
+Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, HMAC, and SSRF validation paths (G8, AC13). WBS 3.3 tests cover short-circuit auth, strict parsed-body schema, caller-vs-config destination errors, successful new/replay response shapes, tenant isolation, immutable original rows on replay, propagated adapter failures, and the 1,000-submission SQLite concurrency criterion. SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
 ### 9.2 Migration and Deployment
 
