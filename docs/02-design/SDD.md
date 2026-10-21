@@ -94,7 +94,7 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | **Persistence Adapter** (WBS 2.3)      | Storage-owned `SqliteDatabaseAdapter` opens better-sqlite3, configures WAL, `busy_timeout=5000`, and foreign keys, applies SQLite migrations before returning, and implements `DatabaseAdapter` with parameterized SQL. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
 | **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
 | **Auth Middleware** (WBS 3.1)          | Validates one configured API key using SHA-256 fixed-length digests and `crypto.timingSafeEqual`; returns the configured `clientId` on success and a uniform unauthorized result otherwise. HTTP transport maps that result to 401. | Auth configuration               |
-| **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
+| **Validator / SSRF Guard** (WBS 3.2)   | Strict Zod ingestion-body schema and absolute-HTTPS URL validation; resolves hostnames and rejects any unsafe IPv4/IPv6 answer before dispatch. Uses Node built-ins and fails closed on lookup errors or empty results. | Domain Types, Node DNS/net, Zod |
 | **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
 | **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
 | **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
@@ -189,7 +189,7 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 
 ### 5.1 `POST /webhooks` — Idempotent Ingestion
 
-- **Request body:** `{ "idempotency_key": string (required), "payload": JSON (required), "destination_url": string (optional; defaults to configured WEBHOOK_URL) }`. The client MUST NOT supply `id` (FR-18).
+- **Request body:** `{ "idempotency_key": string (non-empty, required), "payload": JSON (required), "destination_url": string (optional; defaults to configured WEBHOOK_URL) }`. The schema is strict and rejects unknown properties; `client_id` is derived from authenticated identity, and the client MUST NOT supply `id` or timestamps (FR-18). The payload must be recursively JSON-compatible (finite numbers, strings, booleans, null, arrays, and string-keyed objects).
 - **Success:** `202 Accepted` with `{ "id": <system UUID>, "idempotency_key": <key>, "idempotent_replay": true|false, "status": "pending" }` (FR-2).
 - **Errors:** `401 Unauthorized` (missing/invalid key, FR-9); `400 Bad Request` (schema violation); `422 Unprocessable Entity` (SSRF-blocked URL); `429 Too Many Requests` (fixed-window rate limit, NFR-S5); `503` on storage unavailability (NFR-R3 — scheduler/host never crashes).
 - **Idempotency:** enforced by a single-statement atomic upsert against `UNIQUE(client_id, idempotency_key)`; concurrent duplicate submissions (≥ 1000 parallel, AC2) yield exactly one row and `idempotent_replay: true` on replays.
@@ -221,6 +221,16 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 The result is a discriminated union: success contains only the configured `clientId`; failure contains the common unauthorized status code `401`. Missing, malformed/absent, and wrong tokens share that failure shape. The authenticator never logs or returns credentials. The HTTP transport is responsible for extracting a Bearer or `x-api-key` value and translating the failure result to an HTTP response; the transport itself is not part of WBS 3.1.
 
 v1 configures a single API key/client identity pair; multi-key registries and per-tenant credential management are out of scope. The `clientId` returned on success is the only identity value downstream ingestion may use for tenant stamping. No retry, circuit breaker, or CORS behavior is part of this authentication contract.
+
+### 5.7 Payload and Destination Validation Contract (WBS 3.2; NFR-S6, AC14)
+
+`src/features/ingestion/ingestion.schema.ts` exports the strict Zod schema for the parsed request body and its inferred input type. It accepts only a non-empty `idempotency_key`, a recursive JSON `payload`, and an optional string `destination_url`; omitted destination URLs are resolved to configured `WEBHOOK_URL` by the later ingestion handler and that effective URL is subject to the same validation. Malformed JSON parsing remains the HTTP transport's responsibility. Tenant identity and timestamps are server-derived and are not accepted from the caller.
+
+`src/security/ssrf.ts` exports an asynchronous destination validator. It parses with the WHATWG `URL` implementation, requires `https:`, a hostname, and no username/password, and returns a discriminated validation result that contains no resolved addresses or raw resolver errors. Invalid syntax, unsupported protocols, embedded credentials, unsafe targets, empty DNS results, and resolver failures fail closed and map to one generic `422` destination error; schema violations map to `400`. Hostnames use Node's `lookup` with `{ all: true, verbatim: true }`; tests mock this DNS boundary with deterministic results. Validation opens no HTTP connection or socket to the destination.
+
+IP literals are canonicalized by URL parsing and classified directly without DNS. `localhost` and any subdomain of `.localhost` are rejected explicitly, including trailing-dot/case variants. Other hostnames are resolved with Node's `node:dns/promises` lookup requesting all address records. If any returned A or AAAA address is unsafe, the whole hostname is rejected (including mixed public/private answers); an empty result or lookup error is rejected. The address classifier rejects IPv4/IPv6 loopback, unspecified, private (RFC 1918 and IPv6 ULA), link-local, multicast, reserved/special-use ranges, cloud metadata (`169.254.169.254`), and IPv4-mapped IPv6 addresses when the embedded IPv4 address is unsafe. Node's `node:net` IP parser and explicit CIDR comparisons are used; no IP-classification dependency is introduced.
+
+This preflight lookup is not an address pin. DNS can change between validation and connection, so WBS 5.2 must revalidate and bind the connection to a safe resolved address, and redirects must be disabled or every redirect target must receive the same validation. WBS 3.2 does not implement dispatch, TLS configuration, or redirect handling. Unit tests mock the DNS boundary and make no external DNS/network requests.
 
 ## 6. Key Flows
 
@@ -288,6 +298,7 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 - **Delivery integrity and replay defense (NFR-S2):** HMAC SHA-256 over `timestamp.body` with the configured secret; timestamp material defeats replay of stale captures.
 - **Tenant isolation (NFR-S7):** non-enumerable UUIDv4 ids plus mandatory `client_id` scoping on every read; cross-tenant attempts return `404` (BOLA/IDOR prevention).
 - **SSRF protection (NFR-S6, AC14):** URL allow-policy enforcing HTTPS, resolving and rejecting loopback, RFC 1918, link-local, and `169.254.169.254` metadata targets before any socket is opened.
+- **SSRF preflight limits:** WBS 3.2 fails closed for unsafe literal/resolved IPv4/IPv6 addresses, malformed/non-HTTPS URLs, credentials in URLs, empty DNS results, and resolver failures. The validator does not dispatch or pin a socket; WBS 5.2 must revalidate/pin before connecting and validate redirect targets or disable redirects to mitigate DNS rebinding.
 - **SQL safety (NFR-S4):** parameterized/prepared statements exclusively in the SQLite adapter.
 - **Secret hygiene (NFR-S3):** env-only secrets; structured logger redactors for `Authorization`, `x-api-key`, HMAC secret, and payloads (mitigates R6).
 - **Rate limiting (NFR-S5):** basic fixed window on ingestion protects the embedded DB.
@@ -327,7 +338,7 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 | Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
 | Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
 
-Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, and HMAC paths (G8, AC13). Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
+Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, HMAC, and SSRF validation paths (G8, AC13). SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
 ### 9.2 Migration and Deployment
 
@@ -349,8 +360,9 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 | Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
 | Stale-lease recovery   | Scheduler invokes the SQLite adapter's atomic stale-lease sweep each poll cycle (WBS 4.1); threshold is `max(timeoutLimitMs + 30000 ms, 90000 ms)` and retry delay is 10 seconds (ADR-0002) | Heartbeat-only leases — extra write amplification; 2.7 adapter implementation is deliberately separate from the WBS 4.1 poll loop |
 | Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
+| Destination validation | ADR-0005: Node built-ins, HTTPS-only strict URL parsing, all-address DNS validation, and fail-closed handling; dispatcher must later pin/revalidate | URL syntax-only validation misses hostname SSRF; a new IP library does not solve the future connection-pinning boundary |
 
-**Related ADRs:** ADR-0001 SQLite atomic-claim pattern; ADR-0002 stale-lease recovery mechanism; ADR-0003 SQLite migration runner selection; ADR-0004 non-retryable 4xx classification. Future database dialects require separate design and validation.
+**Related ADRs:** ADR-0001 SQLite atomic-claim pattern; ADR-0002 stale-lease recovery mechanism; ADR-0003 SQLite migration runner selection; ADR-0004 non-retryable 4xx classification; ADR-0005 SSRF-safe destination validation. Future database dialects require separate design and validation.
 
 **Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC14), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R1–R7). Per master rules, coding begins only after explicit design-checkpoint approval of this document by the Product Engineer, Tech Lead, and stakeholder.
 
@@ -370,6 +382,7 @@ src/
 │   │   ├── ingestion.routes.ts        # POST /webhooks route registration
 │   │   ├── ingestion.handler.ts       # Atomic upsert handler, 202 response shape
 │   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
+│   │   ├── ingestion.schema.test.ts   # Strict parsed-body schema tests (WBS 3.2)
 │   │   ├── ingestion.service.ts       # Upsert + WEBHOOK_URL fallback logic
 │   │   └── ingestion.test.ts          # Unit/integration tests (AC1/AC2)
 │   ├── scheduler/             # WBS 4.1 — poll loop and claim coordination
@@ -403,10 +416,11 @@ src/
 │   └── storage.test.ts                # SQLite schema and persistence tests
 ├── security/                  # Cross-cutting security primitives
 │   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
-│   ├── ssrf.ts                        # URL resolver + private/metadata guard (AC14)
+│   ├── ssrf.ts                        # URL resolver + private/metadata guard (WBS 3.2 / AC14)
 │   ├── ratelimit.ts                   # Fixed-window ingestion limiter (NFR-S5)
 │   ├── auth.test.ts                   # API-key authentication contract tests (AC7)
-│   └── security.test.ts               # SSRF and isolation suites (AC12, AC14)
+│   ├── ssrf.test.ts                   # Deterministic IPv4/IPv6 and DNS boundary tests (AC14)
+│   └── security.test.ts               # Shared security and isolation suites (AC12)
 ├── app/                       # Composition & transport roots
 │   ├── http.server.ts                 # Standalone HTTP service bootstrap (pnpm dev)
 │   ├── embedded.ts                    # Embedded-library entrypoint (programmatic API)

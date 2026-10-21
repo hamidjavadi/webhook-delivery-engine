@@ -27,7 +27,7 @@
 - **Objective:** Build a secure, high-throughput intake layer that prevents duplicate processing and protects against infrastructure vulnerabilities.
 - **Key Milestones:**
   - `M2.1`: Constant-time API-key authentication using SHA-256 pre-hashed credentials, resolving the configured `clientId` only on success and producing one unauthorized result for missing or invalid credentials.
-  - `M2.2`: SSRF guard active to block loopback, RFC1918 private subnets, link-local, and cloud metadata IPs (`169.254.169.254`).
+  - `M2.2`: Ingestion request schema and HTTPS destination validator reject malformed input, embedded URL credentials, and literal or DNS-resolved unsafe IPv4/IPv6 addresses before dispatch; the dispatcher revalidates addresses at connection time to mitigate DNS rebinding.
   - `M2.3`: Atomic upsert ingestion pipeline responding uniformly with `202 Accepted` returning system `id`, `idempotency_key`, and `idempotent_replay: true|false`.
 - **Mapped WBS Items:** WBS 3.0 (3.1, 3.2, 3.3).
 - **Exit Criteria (DoD):** 1,000 concurrent duplicate ingestion requests produce exactly 1 stored event with zero race conditions.

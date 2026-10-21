@@ -19,6 +19,12 @@ extracts credentials or maps its unauthorized result to an actual response yet.
 Do not deploy this revision as a functioning delivery service or rely on
 automatic stale-lease recovery or HTTP authentication.
 
+WBS 3.2 adds a strict ingestion-body schema and HTTPS destination preflight
+validation. This validation has no HTTP transport integration and is not a
+connection pin; before enabling outbound delivery, the dispatcher must validate
+and pin resolved addresses at connection time and disable redirects or
+revalidate every redirect target to prevent DNS rebinding.
+
 ## Prerequisites
 
 - Node.js 24 or later and pnpm 10.4.1.
@@ -52,10 +58,13 @@ and approved. For a development/release-candidate build:
    activity, and successful delivery to a controlled test endpoint before
    enabling production traffic.
 
-For the current adapter change, verify recovery behavior with
-`pnpm exec vitest run src/storage/sqlite.adapter.test.ts` and run the full
-release checks above. Automated deployment, health probes, and live
-environment checks are not configured.
+For storage recovery changes, verify behavior with
+`pnpm exec vitest run src/storage/sqlite.adapter.test.ts`. For WBS 3.2 URL
+validation, verify the deterministic suite with
+`pnpm exec vitest run src/security/ssrf.test.ts
+src/features/ingestion/ingestion.schema.test.ts`. Run the full release checks
+above before any future release candidate. Automated deployment, health
+probes, and live environment checks are not configured.
 
 ## Health, Monitoring, and Alerts
 
