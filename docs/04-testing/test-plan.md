@@ -30,11 +30,17 @@ only strictly expired `processing` leases, clears lease fields, schedules
 retry at `now + 10000 ms`, rejects invalid inputs without writes, and leaves
 active, cutoff-equal, and non-processing rows unchanged. Poll-loop invocation
 is deferred to WBS 4.1.
+For Task 3.1, verify a valid configured API key resolves only to its configured
+`clientId`; absent, invalid, and unequal-length credentials produce a uniform
+unauthorized result. Confirm SHA-256 pre-hashing plus
+`crypto.timingSafeEqual`, and verify secrets are never included in results,
+errors, or logs.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
-  Vitest assertions in `tests/core/contracts.test.ts`.
+  Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
+  is exercised by `src/security/auth.test.ts`.
 - **Integration:** Node's built-in `node:sqlite` continues to verify the runner;
   better-sqlite3 adapter tests use isolated temporary on-disk databases with
   the native driver and real schema. No external DB service or credentials are
@@ -64,6 +70,9 @@ is deferred to WBS 4.1.
 | Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
 | Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
 | Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
+| Valid configured API key resolves its configured `clientId` | WBS 3.1 authentication unit tests |
+| Missing, invalid, and unequal-length API keys produce the same unauthorized result without exposing credentials | WBS 3.1 authentication unit tests |
+| Credential comparison uses equal-length SHA-256 digests and `crypto.timingSafeEqual` | WBS 3.1 authentication implementation and tests |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
@@ -99,8 +108,8 @@ testing do not apply to these storage contracts.
 ## Coverage: minimum 80% overall, 95% for critical paths
 
 The repository-wide thresholds remain 80% overall and 95% on critical paths.
-Coverage applies to executable runner, adapter, and bootstrap code; the adapter
-and other critical storage operations target at least 95% coverage while
+Coverage applies to executable runner, adapter, bootstrap, and security code;
+authentication and other critical paths target at least 95% coverage while
 repository-wide coverage remains at least 80%. SQL declarations are not treated
 as executable source. Record measured results or report a tooling limitation
 without treating an unmeasured threshold as met.
@@ -316,3 +325,29 @@ completion, append actual command results and the Go/No-Go decision here.
   that poll loop.
 - **Go/No-Go:** Go for WBS Task 2.7's approved SQLite adapter recovery scope;
   the scheduler integration remains outside this task.
+
+### Task 3.1 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
+- **TDD red check:** `pnpm exec vitest run src/security/auth.test.ts` failed
+  because `src/security/auth.ts` did not yet exist, as expected.
+- **Focused coverage note:** Running the auth test file alone with global
+  coverage enabled showed 100% auth-module coverage but exited non-zero because
+  the repository-wide 80% threshold includes unexecuted app/storage modules.
+  The complete coverage suite was used for the final threshold result.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (7 files, 56 tests),
+  including all four authentication tests for valid identity resolution,
+  identical unauthorized results across missing/incorrect/unequal-length
+  credentials, secret non-disclosure, and invalid configuration.
+- **Coverage:** 96.49% overall lines/statements, 98.14% functions, and 90.61%
+  branches. `src/security/auth.ts` measured 100% lines/statements, functions,
+  and branches.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier check and `git diff --check` passed.
+- **Open bugs/limitations:** No authentication defects identified. This task
+  provides an auth primitive, not a server or header-extraction middleware;
+  future HTTP routes must map its unauthorized result to an actual HTTP 401
+  and must use the returned `clientId` for tenant scoping.
+- **Go/No-Go:** Go for WBS Task 3.1 authentication primitive; route integration
+  remains in downstream API work.

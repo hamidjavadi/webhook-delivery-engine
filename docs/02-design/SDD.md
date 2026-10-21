@@ -93,7 +93,7 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
 | **Persistence Adapter** (WBS 2.3)      | Storage-owned `SqliteDatabaseAdapter` opens better-sqlite3, configures WAL, `busy_timeout=5000`, and foreign keys, applies SQLite migrations before returning, and implements `DatabaseAdapter` with parameterized SQL. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
 | **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
-| **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
+| **Auth Middleware** (WBS 3.1)          | Validates one configured API key using SHA-256 fixed-length digests and `crypto.timingSafeEqual`; returns the configured `clientId` on success and a uniform unauthorized result otherwise. HTTP transport maps that result to 401. | Auth configuration               |
 | **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
 | **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
 | **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
@@ -214,6 +214,14 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 
 ---
 
+### 5.6 API-Key Authentication Contract (WBS 3.1; FR-7–FR-10)
+
+`src/security/auth.ts` exports a factory that accepts an immutable configuration containing one non-empty `apiKey` and its non-empty `clientId`, and returns an authenticator accepting a candidate token or `undefined`. The factory computes and retains only the configured credential's SHA-256 digest. Each authentication call hashes the candidate (using an empty sentinel when absent) and compares the fixed-length digests with `crypto.timingSafeEqual`; there is no secret-length early return or direct secret equality comparison. Configuration errors fail during authenticator creation, before handling requests.
+
+The result is a discriminated union: success contains only the configured `clientId`; failure contains the common unauthorized status code `401`. Missing, malformed/absent, and wrong tokens share that failure shape. The authenticator never logs or returns credentials. The HTTP transport is responsible for extracting a Bearer or `x-api-key` value and translating the failure result to an HTTP response; the transport itself is not part of WBS 3.1.
+
+v1 configures a single API key/client identity pair; multi-key registries and per-tenant credential management are out of scope. The `clientId` returned on success is the only identity value downstream ingestion may use for tenant stamping. No retry, circuit breaker, or CORS behavior is part of this authentication contract.
+
 ## 6. Key Flows
 
 ### 6.1 Idempotent Ingestion Flow
@@ -276,7 +284,7 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 ### 7.1 Security and Privacy
 
-- **Authentication (NFR-S1):** constant-time comparison via `crypto.timingSafeEqual` over equal-length SHA-256 pre-hashed buffers; no early exits or length leaks (mitigates R3); `401` on all missing/invalid credentials (AC7, AC12).
+- **Authentication (NFR-S1):** `src/security/auth.ts` compares equal-length SHA-256 digests with `crypto.timingSafeEqual`, including absent credentials via a fixed sentinel; returns a uniform unauthorized result mapped to `401`, and exposes the configured `clientId` only after successful verification (mitigates R3; AC7, AC12).
 - **Delivery integrity and replay defense (NFR-S2):** HMAC SHA-256 over `timestamp.body` with the configured secret; timestamp material defeats replay of stale captures.
 - **Tenant isolation (NFR-S7):** non-enumerable UUIDv4 ids plus mandatory `client_id` scoping on every read; cross-tenant attempts return `404` (BOLA/IDOR prevention).
 - **SSRF protection (NFR-S6, AC14):** URL allow-policy enforcing HTTPS, resolving and rejecting loopback, RFC 1918, link-local, and `169.254.169.254` metadata targets before any socket is opened.
@@ -397,7 +405,8 @@ src/
 │   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
 │   ├── ssrf.ts                        # URL resolver + private/metadata guard (AC14)
 │   ├── ratelimit.ts                   # Fixed-window ingestion limiter (NFR-S5)
-│   └── security.test.ts               # Auth, SSRF, isolation suites (AC7, AC12, AC14)
+│   ├── auth.test.ts                   # API-key authentication contract tests (AC7)
+│   └── security.test.ts               # SSRF and isolation suites (AC12, AC14)
 ├── app/                       # Composition & transport roots
 │   ├── http.server.ts                 # Standalone HTTP service bootstrap (pnpm dev)
 │   ├── embedded.ts                    # Embedded-library entrypoint (programmatic API)
