@@ -184,6 +184,14 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - **FR-18 (MUST):** Ingestion accepts a parsed request containing `idempotency_key` + JSON `payload`, plus optional `destination_url` falling back to configured `WEBHOOK_URL`. Authenticated `client_id` is server-derived; clients MUST NOT supply identity, event id, or timestamps. The strict request schema rejects missing/invalid required fields and unknown fields. On acceptance, the application returns status `202` with system `id`, `idempotency_key`, `idempotent_replay: true|false`, and `status: "pending"`; HTTP route/transport mapping is separate from the ingestion handler. A malformed or unsafe configured fallback is a server configuration error (`500`), not a caller URL error (`422`), and must not persist an event.
 - **FR-19 (MUST):** Endpoints to query event status and attempt history (list events by status; get event with attempts), addressable by the system-generated id and/or idempotency_key. All read endpoints MUST strictly enforce tenant isolation by scoping database queries to the authenticated client_id (WHERE id = :id AND client_id = :authClientId). Any request attempting to access an event belonging to another client MUST return HTTP 404 Not Found to prevent metadata leakage and Broken Object Level Authorization (BOLA/IDOR).
 - **FR-20 (SHOULD):** Structured logging (`LOG_LEVEL`) of lifecycle transitions.
+- **FR-21 (MUST):** The claim scheduler runs poll cycles using the configured
+  interval, batch size, worker concurrency, and request timeout. Each cycle
+  invokes stale-lease recovery exactly once before claiming due events, and
+  only atomically claimed events may be passed to the worker-processing seam.
+  An empty batch waits for the configured poll interval rather than polling
+  continuously. A transient adapter failure is reported without terminating
+  the host process, and polling resumes after a throttle interval. OS signal
+  registration and in-flight dispatch draining remain WBS 4.2.
 
 ---
 
@@ -202,7 +210,8 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 ### 6.2 Performance
 
 - NFR-P1 (MUST): p95 ingestion latency < 50 ms (SQLite, local disk).
-- NFR-P2 (MUST): Claim scheduler poll interval configurable; idle CPU overhead < 10%.
+- NFR-P2 (MUST): Claim scheduler poll interval configurable; empty cycles wait
+  between polls and idle CPU overhead remains < 10% in the local idle benchmark.
 - NFR-P3 (MUST): Batch claiming (configurable batch size, default 10) to amortize transaction overhead.
 - NFR-P4 (SHOULD): Ingestion throughput ≥ 200 events/s sustained on SQLite.
 
