@@ -6,14 +6,6 @@ const sqliteMigration = readFileSync(
   new URL('./migrations/sql/sqlite/001_initial_schema.sql', import.meta.url),
   'utf8',
 );
-const postgresMigration = readFileSync(
-  new URL('./migrations/sql/postgres/001_initial_schema.sql', import.meta.url),
-  'utf8',
-);
-const mysqlMigration = readFileSync(
-  new URL('./migrations/sql/mysql/001_initial_schema.sql', import.meta.url),
-  'utf8',
-);
 
 describe('initial database schema migrations', () => {
   it('applies the SQLite schema to a fresh database and tracks the migration', () => {
@@ -226,40 +218,5 @@ describe('initial database schema migrations', () => {
     ).toMatchObject({ count: 0 });
 
     database.close();
-  });
-
-  it.each([
-    ['PostgreSQL', postgresMigration],
-    ['MySQL', mysqlMigration],
-  ])(
-    'declares the approved tables, states, and composite indexes for %s',
-    (_dialect, migration) => {
-      expect(migration).toMatch(/CREATE TABLE IF NOT EXISTS webhook_events/i);
-      expect(migration).toMatch(/CREATE TABLE IF NOT EXISTS webhook_event_attempts/i);
-      expect(migration).toMatch(/UNIQUE\s*\(\s*client_id\s*,\s*idempotency_key\s*\)/i);
-      expect(migration).toMatch(
-        /status[\s\S]*pending[\s\S]*processing[\s\S]*delivered[\s\S]*retry[\s\S]*failed/i,
-      );
-      expect(migration).toMatch(/idx_webhook_events_due[\s\S]*status[\s\S]*next_retry_at/i);
-      expect(migration).toMatch(
-        /uq_webhook_event_attempts_event_number[\s\S]*event_id[\s\S]*attempt_number/i,
-      );
-      expect(migration).toMatch(/FOREIGN KEY\s*\(\s*event_id\s*\)[\s\S]*ON DELETE CASCADE/i);
-    },
-  );
-
-  it('uses bounded tenant-scoped MySQL idempotency columns and native enums', () => {
-    expect(mysqlMigration).toMatch(
-      /idempotency_key\s+VARCHAR\(255\)\s+CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin\s+NOT NULL/i,
-    );
-    expect(mysqlMigration).toMatch(
-      /client_id\s+VARCHAR\(255\)\s+CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin\s+NOT NULL/i,
-    );
-    expect(mysqlMigration).toMatch(
-      /CONSTRAINT\s+uq_client_idempotency\s+UNIQUE\s*\(\s*client_id\s*,\s*idempotency_key\s*\)/i,
-    );
-    expect(mysqlMigration).toMatch(
-      /status\s+ENUM\('pending',\s*'processing',\s*'delivered',\s*'retry',\s*'failed'\)/i,
-    );
   });
 });

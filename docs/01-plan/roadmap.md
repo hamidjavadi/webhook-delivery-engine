@@ -1,4 +1,4 @@
-- **Horizon 1 (v1.0.0 — MVP Core):** Single-tenant, multi-dialect ACID persistence, idempotent ingestion, backoff dispatch with jitter, SSRF/HMAC security, programmatic TS SDK & REST API.
+- **Horizon 1 (v1.0.0 — MVP Core):** Single-tenant, SQLite ACID persistence, idempotent ingestion, backoff dispatch with jitter, SSRF/HMAC security, programmatic TS SDK & REST API.
 - **Horizon 2 (v1.1.0 — Observability & Operations):** Native OpenTelemetry tracing, Prometheus metrics export (`/metrics`), structured health/readiness probes.
 - **Horizon 3 (v2.0.0 — Multi-Tenancy & Extensibility):** Per-tenant retry policies and rate limits, dead-letter manual replay tooling (DLQ API), consumer-side HMAC verification SDKs.
 
@@ -6,18 +6,18 @@
 
 ## 2. Phase Breakdown for Release v1.0.0
 
-### Phase 1: Foundation & Multi-Dialect Persistence
+### Phase 1: Foundation & SQLite Persistence
 
 - **Estimated Effort:** ~32h (WBS 1.0: 6h, WBS 2.0: 26h)
-- **Objective:** Establish the project environment, strict typing contracts, and the database persistence abstraction across all 3 supported SQL engines.
+- **Objective:** Establish the project environment, strict typing contracts, SQLite persistence, and the database-adapter contract. PostgreSQL and MySQL implementations are deferred to v2.0.
 - **Key Milestones:**
   - `M1.1`: Strict Node.js (≥24) / TypeScript workspace configured with zero-tolerance linting.
   - `M1.2`: Core domain models (`WebhookEvent` with system-generated UUID, `AttemptRecord`, `DatabaseAdapter`) established.
   - `M1.3`: Unified schema definitions and built-in migration runner implemented.
-  - `M1.4`: SQLite (`better-sqlite3`), PostgreSQL (`pg`), and MySQL (`mysql2`) drivers fully functional.
+  - `M1.4`: SQLite driver (better-sqlite3) fully functional.
   - `M1.5`: Atomic conditional `UPDATE` claim mechanism and stale-lease reclamation implemented.
-- **Mapped WBS Items:** WBS 1.0 (1.1, 1.2), WBS 2.0 (2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7).
-- **Exit Criteria (DoD):** Dual tables active across all 3 DBs; single-statement atomic claim passes zero-double-claim validation under local tests.
+- **Mapped WBS Items:** WBS 1.0 (1.1, 1.2), WBS 2.0 (2.1, 2.2, 2.3, 2.6, 2.7). WBS 2.4–2.5 are deferred to v2.0.
+- **Exit Criteria (DoD):** SQLite schema and migrations are active; single-statement atomic claim passes zero-double-claim validation under SQLite tests.
 
 ---
 
@@ -56,8 +56,8 @@
 - **Key Milestones:**
   - `M4.1`: REST endpoints operational (`POST /webhooks`, `GET /webhooks/:id`, `GET /webhooks/:id/attempts`).
   - `M4.2`: Standalone TypeScript library entry point (`createWebhookEngine`) exported.
-  - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers across SQLite, Postgres, and MySQL).
-  - `M4.4`: CI/CD pipeline operational via GitHub Actions with multi-dialect test matrix.
+  - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers in SQLite).
+  - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
   - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
 - **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2).
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all Acceptance Criteria AC-1 through AC-14 pass.
@@ -68,7 +68,7 @@
 
 | Milestone                    | Target Scope | Primary Deliverable                          | Success Metric / Gate                                   |
 | ---------------------------- | ------------ | -------------------------------------------- | ------------------------------------------------------- |
-| **M1: Storage Foundation**   | WBS 1.0, 2.0 | Schema, Migrations, 3 DB Adapters            | ACID claim query passing on SQLite, Postgres & MySQL    |
+| **M1: Storage Foundation**   | WBS 1.0, 2.0 | SQLite schema, migrations, and adapter       | ACID claim query passing on SQLite                      |
 | **M2: Ingestion & Security** | WBS 3.0      | Ingestion Pipeline, Constant-time Auth, SSRF | 1,000 concurrent submissions with zero double ingestion |
 | **M3: Delivery & Backoff**   | WBS 4.0, 5.0 | Worker Loop, HMAC Signer, Backoff Dispatcher | Full jitter math verified; attempt audit records logged |
 | **M4: Interfaces & QA Gate** | WBS 6.0, 7.0 | REST API, TS Library SDK, CI/CD Suite        | Vitest ≥80% total / ≥95% critical; all ACs green        |

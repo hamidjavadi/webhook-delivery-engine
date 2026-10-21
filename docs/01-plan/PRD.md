@@ -42,7 +42,7 @@ Systems that emit webhooks to external consumers currently fail silently or lose
 A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 
 - accepts webhook events idempotently,
-- persists events and per-attempt state to a database (SQLite by default; Postgres/MySQL supported via a unified concurrency-safe claim),
+- persists events and per-attempt state in SQLite for v1.0.0,
 - retries failed deliveries with bounded exponential backoff + jitter,
 - signs and authenticates deliveries (HMAC SHA-256) and authenticates ingestion clients (API key, constant-time comparison),
 - exposes full attempt observability and configuration (timeout, max attempts).
@@ -57,14 +57,14 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 | U2  | **Ops / SRE engineer**                         | Monitors delivery health                    | Visibility into event states, attempt history, response codes, timestamps; ability to cap attempts and timeouts via config                                | No audit trail; cannot diagnose failed deliveries      |
 | U3  | **Webhook consumer (external endpoint owner)** | Receives deliveries at `WEBHOOK_URL`        | Reliable, ordered-enough delivery; Verifiable authenticity and the system-generated event `id` (header and body) that consumers can use for deduplication | Duplicates and unauthenticated deliveries              |
 | U4  | **Platform / API client**                      | Pushes events into the ingestion endpoint   | Simple, secure authentication (API key), fast acceptance (202-style async), clear idempotency semantics                                                   | Ad-hoc auth; no dedup guarantee                        |
-| U5  | **DBA / infrastructure owner**                 | Runs SQLite, Postgres, or MySQL             | Engine works across all three with the same code path and safe concurrent claiming, including on SQLite (single-writer)                                   | Schema/locking differences per DB                      |
+| U5  | **DBA / infrastructure owner**                 | Runs SQLite    | Engine works with safe concurrent claiming and manageable SQLite single-writer locking | SQLite schema and locking behavior                     |
 
 **Primary needs summary:**
 
 - N1: Idempotent ingestion (duplicate submissions → single delivery job).
 - N2: Durable persistence of events and retry state across restarts.
 - N3: Bounded exponential backoff with jitter, configurable via global config.
-- N4: Concurrency-safe atomic claiming of due events across SQLite / Postgres / MySQL.
+- N4: Concurrency-safe atomic claiming of due events across SQLite.
 - N5: Security — API-key-authenticated ingestion, HMAC SHA-256-signed deliveries.
 - N6: Observability — per-attempt records (timestamp, HTTP status, error, latency).
 
@@ -77,7 +77,7 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 | G1  | **Specific/Measurable:** Eliminate silent event loss — every accepted event is either delivered, in retry, or terminally failed with a recorded reason.                                                                                                           | Current state and complete attempt history recorded for 100% of accepted events | **100%** of accepted events                                                                                                                         | By v1.0.0 release        |
 | G2  | **Idempotency:** Duplicate ingestion with the same `client_id` + `idempotency_key` pair creates exactly one delivery job.                                                                                                                                         | Duplicate ingestion test: unique jobs created / duplicate submissions           | **exactly 1** job per unique (`client_id`, `idempotency_key`) pair (≥ 1000-subject concurrency test passes)                                         | Sprint of implementation |
 | G3  | **Reliability of retries:** Transiently failing endpoint (5xx/timeout) is retried per bounded exponential backoff until `maxAttempts`.                                                                                                                            | Automated integration test with mock endpoint                                   | Retry schedule matches backoff spec ±jitter; no attempt beyond `maxAttempts`; 0 retries after terminal state                                        | Same sprint              |
-| G4  | **Concurrency safety:** Two or more workers never hold an active claim on the same due event simultaneously across SQLite, Postgres, and MySQL. Under at-least-once semantics, duplicate outbound deliveries remain possible only across worker crashes/reclaims. | Parallel claim integration test per DB driver                                   | **0** double-claims across ≥ 100 concurrent claims × 3 DB engines                                                                                   | Before DoD sign-off      |
+| G4  | **Concurrency safety:** Two or more workers never hold an active claim on the same due event simultaneously in SQLite. Under at-least-once semantics, duplicate outbound deliveries remain possible only across worker crashes/reclaims. | Parallel SQLite claim integration test                                          | **0** double-claims across ≥ 100 concurrent claims                                                                                                | Before DoD sign-off      |
 | G5  | **Security:** All ingestion requests require a valid API key (constant-time comparison) and all deliveries carry a valid HMAC SHA-256 signature; unauthenticated/forged traffic is rejected.                                                                      | Security test suite                                                             | 100% of requests without valid credentials rejected (401); signature verification test passes; timing analysis shows no secret-dependent early exit | Before DoD sign-off      |
 | G6  | **Performance:** Ingestion endpoint latency and background claiming remain lightweight for an embeddable library.                                                                                                                                                 | Load test                                                                       | p95 ingestion latency **< 50 ms** (SQLite local); claim loop overhead **< 10% CPU** at idle; throughput **≥ 200 events/s** ingestion                | Before v1.0.0            |
 | G7  | **Observability:** Any event's full lifecycle is queryable.                                                                                                                                                                                                       | API/report check                                                                | Attempt records include attempt number, timestamp, HTTP status/response, error, latency for **100%** of attempts                                    | Same sprint              |
@@ -97,7 +97,7 @@ Table: `webhook_events` — one row per unique event (idempotency anchor).
 
 | Column Name       | Type                 | Constraints / Description                                                                                                                         |
 | ----------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | UUID / String (PK)   | System-generated cryptographically secure, non-enumerable identifier (UUIDv4 or UUIDv7; unique per row; NOT the client-supplied idempotency key). |
+| `id`              | TEXT (PK)           | System-generated cryptographically secure UUID string; unique per row and not the client-supplied idempotency key. |
 | `idempotency_key` | String               | Client-supplied idempotency key; uniqueness is enforced per client via UNIQUE(`client_id`, `idempotency_key`).                                    |
 | `client_id`       | String               | ID of the authenticated client/tenant that ingested the event.                                                                                    |
 | `destination_url` | String / Text        | Fully qualified HTTPS URL of the destination endpoint.                                                                                            |
@@ -112,7 +112,7 @@ Table: `webhook_events` — one row per unique event (idempotency anchor).
 | `created_at`      | Timestamp / DateTime | Creation timestamp.                                                                                                                               |
 | `updated_at`      | Timestamp / DateTime | Last update timestamp.                                                                                                                            |
 
-Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id`; UNIQUE(`client_id`, `idempotency_key`) enforces per-client idempotency (the `id` itself is system-generated and globally unique across rows). The MySQL dialect stores `client_id` and `idempotency_key` as `VARCHAR(255)` to fit the exact composite unique key within InnoDB index limits; MySQL-backed ingestion must reject values longer than 255 characters.
+Indexes: `idx_webhook_events_due (status, next_retry_at)` for the claim query; PK on `id`; UNIQUE(`client_id`, `idempotency_key`) enforces per-client idempotency (the `id` itself is system-generated and globally unique across rows).
 
 ### 5.2 Database Schema — `webhook_event_attempts`
 
@@ -120,10 +120,10 @@ Table: `webhook_event_attempts` — append-only audit of every delivery attempt.
 
 | Column             | Type             | Constraints                                            | Description                                    |
 | ------------------ | ---------------- | ------------------------------------------------------ | ---------------------------------------------- |
-| `id`               | INTEGER/UUID     | PK                                                     | Row id                                         |
-| `event_id`         | TEXT/UUID        | NOT NULL, FK → `webhook_events.id` (ON DELETE CASCADE) | Parent event                                   |
+| `id`               | TEXT             | PK                                                     | SQLite text row id                             |
+| `event_id`         | TEXT             | NOT NULL, FK → `webhook_events.id` (ON DELETE CASCADE) | Parent event                                   |
 | `attempt_number`   | INTEGER          | NOT NULL                                               | 1-based attempt ordinal                        |
-| `attempted_at`     | INTEGER/DATETIME | NOT NULL                                               | Attempt start time                             |
+| `attempted_at`     | TEXT             | NOT NULL                                               | UTC ISO-8601 attempt start time                |
 | `status_code`      | INTEGER          | NULL                                                   | HTTP response status (NULL on network error)   |
 | `response_snippet` | TEXT             | NULL                                                   | Truncated response body (bounded, e.g. ≤ 1 KB) |
 | `error`            | TEXT             | NULL                                                   | Error text for network/timeout failures        |
@@ -147,13 +147,13 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 
 ### 5.4 Idempotent Ingestion
 
-- **FR-1 (MUST):** Ingesting an event with an existing (`client_id`, `idempotency_key`) pair MUST NOT create a second delivery job. The event `id` is system-generated and unique; idempotency is enforced by UNIQUE(`client_id`, `idempotency_key`) — the same `idempotency_key` submitted by different clients MUST be treated as distinct events. Implementation: atomic upsert (`INSERT ... ON CONFLICT DO NOTHING` on SQLite/Postgres; `INSERT IGNORE` on MySQL) in a single statement against the UNIQUE(`client_id`, `idempotency_key`) constraint, returning whether the row was newly inserted.
+- **FR-1 (MUST):** Ingesting an event with an existing (`client_id`, `idempotency_key`) pair MUST NOT create a second delivery job. The event `id` is system-generated and unique; idempotency is enforced by UNIQUE(`client_id`, `idempotency_key`) — the same `idempotency_key` submitted by different clients MUST be treated as distinct events. SQLite implements this with a single-statement atomic upsert against that unique constraint, returning whether the row was newly inserted.
 - **FR-2 (MUST):** Response MUST return both identifiers — the system-generated `id` and the accepted `idempotency_key` — and MUST indicate accepted-new vs. duplicate-accepted (e.g., 202 with `idempotent_replay: true|false`) so producers can detect replays and consumers can dedupe by `id`.
 
-### 5.5 Unified Atomic Claim (all DBs, including SQLite/Postgres/MySQL)
+### 5.5 SQLite Atomic Claim
 
-- **FR-3 (MUST):** A single, driver-agnostic claim operation MUST atomically select due events (`status IN ('pending','retry') AND (next_retry_at IS NULL OR next_retry_at <= now)`), mark them `processing`, and return them — such that no two workers can claim the same event.
-- **FR-4 (MUST):** All databases (SQLite, PostgreSQL, MySQL) must use a single, identical atomic claim pattern: a conditional UPDATE query that targets eligible rows (`status IN ('pending', 'retry')` where next_retry_at is reached or the lock has expired), atomically sets `status = 'processing'`, `locked_at = NOW()`, and `locked_by = :workerId`, and processes the rows successfully claimed by the current worker.
+- **FR-3 (MUST):** The database-adapter claim operation MUST atomically select due events (`status IN ('pending','retry') AND (next_retry_at IS NULL OR next_retry_at <= now)`), mark them `processing`, and return them — such that no two workers can claim the same event.
+- **FR-4 (MUST):** The v1 SQLite adapter must use an atomic conditional `UPDATE` targeting eligible rows, setting `status = 'processing'`, `locked_at`, and `locked_by` in the same operation. Other SQL dialects and their claim implementations are deferred to v2.0.
 - **FR-5 (MUST):** Claimed events MUST be recoverable: if a worker crashes mid-delivery, an event stuck in `processing` beyond a stale-claim threshold MUST be reclaimable (lease/heartbeat or reset-on-start strategy — final mechanism fixed at design checkpoint).
 - **FR-6 (MUST):** On delivery success → `status='delivered'`; on failure with attempts < `maxAttempts` → `status='retry'` and `next_retry_at` set by backoff; on failure with attempts ≥ `maxAttempts` → `status='failed'`; final attempt row `outcome='exhausted'`.
 
@@ -192,7 +192,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - NFR-S1 (MUST): API key auth with **constant-time** comparison on every protected route (§5.6).
 - NFR-S2 (MUST): HMAC SHA-256 signatures with timestamp on all outbound deliveries (§5.7).
 - NFR-S3 (MUST): Secrets (API key, HMAC secret, DB credentials) only via environment/config; never logged, never in VCS.
-- NFR-S4 (MUST): SQL access exclusively via parameterized statements/prepared statements (no string-concatenated SQL) across all three adapters.
+- NFR-S4 (MUST): SQLite data access exclusively uses parameterized statements/prepared statements (no string-concatenated SQL).
 - NFR-S5 (SHOULD): Rate limiting on ingestion (basic fixed-window) to protect the embedded DB.
 - NFR-S6 (MUST): **SSRF Protection:** The engine MUST validate and sanitize all destination URLs prior to dispatch, blocking loopback addresses (`127.0.0.1`, `localhost`), private network ranges (RFC 1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local addresses, and cloud metadata endpoints (e.g., `169.254.169.254`) to prevent internal network scanning and Server-Side Request Forgery.
 - NFR-S7 (MUST): **Tenant Isolation & BOLA/IDOR Prevention:** Although system-generated `id`s are returned upon ingestion and are cryptographically random/non-enumerable, the engine MUST enforce strict multi-tenant boundary checks on all state-retrieval APIs. No event or attempt audit record shall ever be read or mutated without matching the authenticated caller's `client_id`.
@@ -207,7 +207,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 ### 6.3 Reliability
 
 - NFR-R1 (MUST): All state (events, attempts, config) persists across process restarts; no in-memory-only queue state.
-- NFR-R2 (MUST): Atomic claiming guarantees no duplicate concurrent delivery on SQLite, Postgres, MySQL (G4).
+- NFR-R2 (MUST): SQLite atomic claiming guarantees no duplicate concurrent delivery (G4).
 - NFR-R3 (MUST): Graceful handling of DB unavailability: scheduler backs off and logs, does not crash the host process.
 - NFR-R4 (MUST): Bounded retries — no infinite retry loops; terminal `failed` state after `maxAttempts`.
 - NFR-R5 (SHOULD): Stale-claim recovery (FR-5) bounds the impact of worker crashes.
@@ -215,8 +215,8 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 ### 6.4 Compatibility
 
 - NFR-C1 (MUST): Node.js ≥ 24.x; TypeScript (strict) per README prerequisites.
-- NFR-C2 (MUST): Support SQLite (default, `DATABASE_PATH`), PostgreSQL, MySQL through one internal interface with three driver adapters (e.g., better-sqlite3 / postgres-compatible / mysql2).
-- NFR-C3 (MUST): Schemas provided/migrated for all three engines with equivalent canonical types (§5.1–5.2).
+- NFR-C2 (MUST): v1.0.0 supports SQLite (`DATABASE_URL`) through the internal database-adapter interface; PostgreSQL and MySQL support are deferred to v2.0.
+- NFR-C3 (MUST): The v1.0.0 schema and migrations are provided for SQLite; PostgreSQL and MySQL schemas are deferred to v2.0.
 - NFR-C4 (SHOULD): Runs embedded (library import) and as a standalone HTTP service (`pnpm dev`).
 - NFR-C5 (MAY): Package Manager pnpm or npm; Vitest test runner (per README scripts).
 
@@ -228,15 +228,15 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 ### 7.1 In-Scope (v1)
 
-- Database schema + migrations for `webhook_events`, `webhook_event_attempts`, and Global Config (`timeoutLimitMs`, `maxAttempts`) on SQLite, PostgreSQL, MySQL.
+- SQLite schema and migrations for `webhook_events` and `webhook_event_attempts`.
 - Idempotent event ingestion (single-statement upsert on UNIQUE(`client_id`, `idempotency_key`)) via HTTP API and programmatic API; system-generated event `id` returned alongside the client-supplied `idempotency_key`.
-- Database adapters for SQLite, PostgreSQL, and MySQL using a unified atomic conditional update pattern for concurrency and row-level locking.
+- SQLite database adapter using atomic conditional updates for concurrency safety.
 - Delivery worker with per-delivery HTTP timeout (`timeoutLimitMs`).
 - Bounded exponential backoff with full jitter; terminal `failed` state at `maxAttempts`.
 - API key authentication with constant-time comparison.
 - HMAC SHA-256 request signing with timestamp on all outbound deliveries.
 - Attempt audit logging (`webhook_event_attempts`) and status/history query endpoints.
-- Structured logging, Vitest unit + integration suites (including per-DB concurrency and security tests), README/docs updates.
+- Structured logging, Vitest unit + integration suites (including SQLite concurrency and security tests), README/docs updates.
 
 ### 7.2 Out-of-Scope (v1)
 
@@ -257,7 +257,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
 | AC1  | Given a new (`client_id`, `idempotency_key`) pair, when ingested, then a `webhook_events` row with a system-generated unique `id` and `status='pending'` exists, and the response returns both `id` and `idempotency_key`.                                                                             | Integration test                                               |
 | AC2  | Given the same (`client_id`, `idempotency_key`) pair ingested N≥2 times (including concurrently), then exactly one delivery job exists and subsequent calls are flagged as idempotent replays; the same `idempotency_key` from a different `client_id` creates a separate event.                       | Concurrency test, ≥1000 parallel submissions                   |
-| AC3  | Given two or more workers claiming due events simultaneously on SQLite, Postgres, and MySQL respectively, then no event is concurrently claimed by more than one worker; each due claim yields exactly one in-flight dispatch attempt.                                                                 | Per-DB parallel claim test (G4)                                |
+| AC3  | Given two or more workers claiming due events simultaneously in SQLite, then no event is concurrently claimed by more than one worker; each due claim yields exactly one in-flight dispatch attempt.                                                                                                                                                                     | SQLite parallel claim test (G4)                                 |
 | AC4  | Given a delivery failing with 500/timeout, then the event transitions `pending→processing→retry`, an attempt row is written, and `next_retry_at = now + random(0, min(1000·2^(n−1), 60000))`.                                                                                                          | Unit test on backoff math; integration test with mock endpoint |
 | AC5  | Given attempts reach `maxAttempts` (default 5), then the event becomes `failed` and the last attempt row has `outcome='exhausted'`; no further deliveries occur.                                                                                                                                       | Integration test                                               |
 | AC6  | Given a delivery exceeding `timeoutLimitMs`, then the request aborts, an attempt row with error `timeout` is recorded, and retry is scheduled.                                                                                                                                                         | Integration test with slow mock endpoint                       |
@@ -277,9 +277,9 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 ### 9.1 Dependencies
 
 - **D1:** Node.js runtime ≥ 24.x; pnpm/npm; Vitest; TypeScript toolchain (per README).
-- **D2:** DB drivers: SQLite driver (e.g., better-sqlite3), PostgreSQL driver (e.g., `pg`), MySQL driver (e.g., `mysql2`) — versions pinned at SDD.
+- **D2:** v1.0.0 uses `better-sqlite3`; PostgreSQL (`pg`) and MySQL (`mysql2`) drivers are deferred to v2.0.
 - **D3:** Consumer endpoint (`WEBHOOK_URL`) reachable over HTTPS and able to honor HMAC verification (verification itself is out of scope).
-- **D4:** Environment configuration available: `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_PATH`, `WEBHOOK_URL`, plus `API_KEY`, `HMAC_SECRET`, and DB connection settings.
+- **D4:** Environment configuration available: `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`, `WEBHOOK_URL`, `API_KEY`, and `HMAC_SECRET`. v1.0 has no PostgreSQL/MySQL connection settings.
 - **D5:** Migration mechanism (hand-written SQL migrations or lightweight migrator) — selected at design checkpoint (ADR if non-trivial).
 
 ### 9.2 Assumptions (explicit, low-risk per master rules)
@@ -299,13 +299,13 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 | ID     | Description                                                                                                                                 | Likelihood | Impact | Priority   | Owner          | Trigger                                                                                           | Preventive Action (Mitigation)                                                                                                                                           | Contingency Plan                                                                                           |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------ | ---------- | -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| **R1** | **SQLite concurrency bottlenecks** — single-writer locking causes `SQLITE_BUSY` or degrades claim throughput under parallel workers.        | Medium     | Medium | **Medium** | Core Eng       | Worker logs report `SQLITE_BUSY` or claim latency spikes > 200ms.                                 | Use `BEGIN IMMEDIATE` transactions, configure `busy_timeout = 5000ms`, tune small batch sizes (NFR-P3), and position SQLite as embedded/dev-tier in docs.                | Gracefully throttle claim frequency and prompt the operator via logs to migrate to PostgreSQL or MySQL.    |
-| **R2** | **Dialect divergence & double-claim risk** — MySQL (<8.0) and SQLite lack standard `SKIP LOCKED`, risking race conditions across workers.   | Medium     | High   | **High**   | Core Eng       | Multi-worker integration tests fail or duplicate delivery attempts appear in DB.                  | Implement a unified, conditional `UPDATE ... WHERE status IN ('pending', 'retry')` returning affected rows across all dialect adapters with dedicated test suites (AC3). | Enforce MySQL 8.0+ floor as a prerequisite if conditional UPDATE edge-cases emerge during SDD.             |
+| **R1** | **SQLite concurrency bottlenecks** — single-writer locking causes `SQLITE_BUSY` or degrades claim throughput under parallel workers. | Medium | Medium | **Medium** | Core Eng | Worker logs report `SQLITE_BUSY` or claim latency spikes > 200ms. | Use `BEGIN IMMEDIATE` transactions, configure `busy_timeout = 5000ms`, and tune small batch sizes (NFR-P3). | Gracefully throttle polling; any database expansion requires a separately scoped v2.0 decision. |
+| **R2** | **SQLite atomic-claim regressions** — transaction or predicate changes permit duplicate claims. | Medium | High | **High** | Core Eng | SQLite multi-worker integration tests fail or duplicate delivery attempts appear in DB. | Validate the conditional `UPDATE` claim and lease ownership with concurrent SQLite tests (AC3). | Block release and fix the SQLite claim transaction before enabling workers. |
 | **R3** | **Timing-attack vulnerability in auth** — non-constant-time comparisons or buffer length mismatch leaks API key validity via side channels. | Low        | High   | **Medium** | Security / Eng | Code analysis flags direct comparisons (`===`) or length leaks in auth paths.                     | Use `crypto.timingSafeEqual` over equal-length SHA-256 pre-hashed buffers with no early exits; enforce strict security unit tests (AC7).                                 | Immediately patch with a cryptographic wrapper and invalidate exposed test API keys.                       |
 | **R4** | **Orphaned `processing` records** — worker process crashes, OOMs, or disconnects mid-dispatch, leaving events stuck in `processing`.        | Medium     | High   | **High**   | Core Eng       | Events remain in `processing` state past the configured timeout without active worker heartbeats. | Implement bounded lease heartbeats and stale-claim recovery scanning on poll loops (FR-5, AC9).                                                                          | Provide an automated reset sweep and an explicit CLI/admin command to release stale locks back to `retry`. |
 | **R5** | **Backoff / Jitter misconfiguration** — improper parameters trigger thundering herds on endpoints or excessive dispatch delays.             | Low        | Medium | **Low**    | Core Eng       | Endpoint reports 429/503 spikes or queue drain latency exceeds SLA.                               | Validate configuration schemas at startup (Zod/Valibot); enforce bounded full-jitter exponential backoff and cap max delays (§5.3, AC4).                                 | Fall back to hardcoded safe defaults (min: 1s, max: 60000ms, full-jitter) if user values fail validation.  |
 | **R6** | **Credential or secret leakage in logs** — raw payloads, auth headers, or signing keys leaked in error stacks or diagnostic logs.           | Low        | High   | **Medium** | Core Eng       | Sensitive tokens, headers, or HMAC secrets detected in application log streams.                   | Enforce structured logging with automated redactors for `Authorization`, `x-api-key`, and request payloads (NFR-S3).                                                     | Rotate compromised credentials and update the logging sanitizer rules to cover the leaked fields.          |
-| **R7** | **Driver / Node.js 24 API drift** — runtime changes in Node 24 native fetch, crypto, or database driver breaking changes.                   | Low        | Medium | **Low**    | Core Eng       | CI build matrix or automated nightly dependency smoke tests fail.                                 | Pin exact package dependencies (D2), run CI matrices across SQLite, Postgres, and MySQL against Node 24.x.                                                               | Lock dependency versions and isolate driver quirks behind engine adapter interfaces.                       |
+| **R7** | **Node.js 24 API drift** — runtime changes in native fetch, crypto, SQLite bindings, or SQLite APIs break behavior. | Low | Medium | **Low** | Core Eng | CI or automated smoke tests fail. | Pin supported dependency versions and test on Node.js 24.x. | Lock dependency versions and isolate SQLite driver behavior behind the storage adapter. |
 
 ---
 
@@ -327,11 +327,11 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 An item/release is **Done** only when ALL of the following hold:
 
 1. **Implementation:** All MUST functional requirements (§5) and MUST non-functional requirements (§6) implemented in TypeScript (strict), per the SDD derived from this PRD.
-2. **Testing:** Vitest unit + integration suites pass (`pnpm test`); integration tests run against **all three** DB engines (SQLite, Postgres, MySQL); security tests (auth, HMAC, idempotency) pass.
+2. **Testing:** Vitest unit + integration suites pass (`pnpm test`); database integration tests run against SQLite; security tests (auth, HMAC, idempotency) pass.
 3. **Coverage:** Overall coverage **≥ 80%**; critical paths — ingestion, unified atomic claim, retry scheduler/backoff, API key auth, HMAC signing — **≥ 95%** (G8, AC13).
 4. **Acceptance criteria:** Every criterion in §8 verified with actual recorded test results (no claimed-but-not-run tests, per master rules).
 5. **Security review:** Constant-time comparison, HMAC signing, parameterized SQL, and secret handling reviewed and confirmed (NFR-S1–S4, NFR-S6).
-6. **Documentation:** README/docs updated (config keys, schema, delivery semantics: at-least-once + HMAC headers), covering setup for all three DBs.
+6. **Documentation:** README/docs updated (config keys, SQLite schema, delivery semantics: at-least-once + HMAC headers), clearly identifying PostgreSQL/MySQL as deferred to v2.0.
 7. **Review:** Code reviewed and approved by Tech Lead; no unresolved critical/high defects.
 8. **Consistency:** PRD/SDD/test plan artifacts consistent with the delivered behavior; scope changes only with explicit user approval.
 9. **Checkpoint:** Planning→design→implementation→QA→deployment checkpoints completed with user approval per `00-master-rules.md`.

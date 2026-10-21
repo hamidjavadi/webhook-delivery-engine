@@ -25,7 +25,7 @@ The Webhook Retry Engine is a lightweight, embeddable Node.js (≥ 24.x) and Typ
 
 - **G1 — No silent loss:** every accepted event terminates in exactly one of `delivered`, `retry`, or `failed` with a complete recorded attempt history.
 - **G2 — Idempotency:** duplicate ingestion of the same (`client_id`, `idempotency_key`) pair creates exactly one delivery job, including under ≥ 1000-subject concurrent submission.
-- **G3/G4 — Reliability and concurrency safety:** bounded exponential backoff with full jitter; a single, driver-agnostic atomic claim pattern guarantees no concurrent double-claims on SQLite, PostgreSQL, and MySQL.
+- **G3/G4 — Reliability and concurrency safety:** bounded exponential backoff with full jitter; the driver-neutral claim contract is implemented for SQLite in v1.0 and guarantees no concurrent double-claims with WAL mode.
 - **G5 — Security:** constant-time API-key authentication on ingestion; HMAC SHA-256 signed deliveries with timestamp; strict tenant isolation (BOLA/IDOR prevention); SSRF-safe destination validation.
 - **G6/G7 — Performance and observability:** p95 ingestion latency < 50 ms (SQLite local); idle claim overhead < 10% CPU; ≥ 200 events/s sustained ingestion; per-attempt records for 100% of attempts.
 - **G8 — Quality:** Vitest coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).
@@ -63,7 +63,7 @@ flowchart LR
         SCHED[Claim Scheduler]
         WORK[Delivery Worker]
         SIGN[HMAC Signing Module]
-        DB[("Database Adapter Interface\nSQLite / PostgreSQL / MySQL")]
+        DB[("Database Adapter Interface\nSQLite (v1.0)")]
     end
     Consumer["Webhook Consumer (external, HTTPS)"]
 
@@ -91,8 +91,8 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | Module                                 | Responsibility                                                                                                                                                                                                                                           | Key Dependencies                 |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
-| **Persistence Adapters** (WBS 2.3–2.5) | One `DatabaseAdapter` implementation per dialect — `better-sqlite3` (WAL, `busy_timeout=5000`, `BEGIN IMMEDIATE`), `pg` (pooling, `ON CONFLICT DO NOTHING`), `mysql2` (pooling, `INSERT IGNORE`). All statements parameterized (NFR-S4).                 | Domain Types, Migration Runner   |
-| **Migration Runner** (WBS 2.2)         | Idempotent, in-process DDL migrations across all three dialects; no external CLI. Version table records applied migrations.                                                                                                                              | Adapters                         |
+| **Persistence Adapter** (WBS 2.3)      | SQLite implementation using `better-sqlite3`, WAL, `busy_timeout=5000`, and parameterized statements. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
+| **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
 | **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
 | **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
 | **Ingestion Handler** (WBS 3.3)        | Atomic single-statement upsert; returns system `id`, `idempotency_key`, `idempotent_replay` flag; falls back to configured `WEBHOOK_URL` when `destination_url` omitted.                                                                                 | Adapters, Auth, Validator        |
@@ -141,10 +141,10 @@ Indexes: PK on `id`; `UNIQUE(client_id, idempotency_key)` (idempotency anchor); 
 
 | Column             | Type      | Notes                                                     |
 | ------------------ | --------- | --------------------------------------------------------- |
-| `id`               | PK        | INTEGER or UUID per dialect convention.                   |
+| `id`               | TEXT      | SQLite text primary key.                                   |
 | `event_id`         | TEXT      | NOT NULL, FK → `webhook_events.id` **ON DELETE CASCADE**. |
 | `attempt_number`   | INTEGER   | 1-based ordinal.                                          |
-| `attempted_at`     | TIMESTAMP | Attempt start.                                            |
+| `attempted_at`     | TEXT      | UTC ISO-8601 attempt start.                               |
 | `status_code`      | INTEGER   | NULL on network error/timeout.                            |
 | `response_snippet` | TEXT      | Bounded ≤ 1 KB, contractually secret-free (A6).           |
 | `error`            | TEXT      | Error text (e.g., `timeout`, `ECONNREFUSED`).             |
@@ -155,14 +155,15 @@ Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attem
 
 ### 4.3 Dialect Mapping and Validation
 
-- **SQLite:** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
-- **PostgreSQL:** `UUID` ids, JSON-validated `TEXT` payload/metadata/headers, `TIMESTAMPTZ`, upsert via `INSERT ... ON CONFLICT (client_id, idempotency_key) DO NOTHING`.
-- **MySQL:** `CHAR(36)` UUIDs, native JSON, `DATETIME(3)`, and `VARCHAR(255)` for both `client_id` and `idempotency_key` so the exact tenant-scoped unique index fits within InnoDB key limits. Both indexed strings use a binary collation for case-sensitive key matching. Ingestion must reject values exceeding those column limits and ensure `response_snippet` is at most 1 KB in encoded bytes. The in-house runner uses `INSERT IGNORE`; InnoDB DDL is not transactionally rollbackable, so migration tracking occurs only after the complete idempotent DDL script succeeds (R2 contingency).
+- **SQLite (v1.0):** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, and `BEGIN IMMEDIATE` for claim transactions (mitigates R1).
+- PostgreSQL and MySQL dialect mappings, schemas, drivers, and adapters are deferred to v2.0 and are not shipped or supported by the v1.0 runtime.
 - Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
 
 ### 4.4 Migration Policy
 
-Migrations are hand-written SQL versioned in-repo, applied by the embedded idempotent migration runner on engine startup before the scheduler starts. The runner owns `schema_migrations` and wraps each SQLite/PostgreSQL script and its version record in one transaction; the DDL files do not start nested transactions. MySQL scripts use idempotent `CREATE TABLE IF NOT EXISTS` statements with their indexes and constraints defined inline, and the runner records the version only after the complete script succeeds because InnoDB DDL implicitly commits. Forward-only; no destructive auto-migrations. A schema change requires an ADR (see §10).
+Migrations are hand-written, forward-only SQL versioned in-repo under `src/storage/migrations/sql/sqlite/` and applied by the in-house SQLite runner. The runner owns `schema_migrations(version, checksum, applied_at)`, loads SQL files in version order, computes SHA-256 checksums, skips already-applied files with matching checksums, rejects changed or missing applied files, and applies each pending set within one SQLite `BEGIN IMMEDIATE`/`COMMIT` transaction (rolling back on failure). The DDL files do not start nested transactions. PostgreSQL and MySQL migrations are deferred to v2.0. No down-migrations or destructive auto-migrations are supported; a schema change requires an ADR (see §10).
+
+The runner is implemented at `src/storage/migrations/runner.ts` against the SQLite connection surface, with all database operations confined to storage. `src/app/bootstrap.ts` is the composition seam: it awaits SQLite migrations before invoking the supplied application-start callback, and does not itself instantiate a server or scheduler. Automated migration/schema tests use Node.js `node:sqlite`; no PostgreSQL/MySQL test services or environment variables are required for v1.0. The core domain has no driver dependencies.
 
 ### 4.5 Sensitive Data and Retention
 
@@ -263,7 +264,7 @@ On each poll cycle the scheduler additionally claims rows where `status = 'proce
 - **Delivery integrity and replay defense (NFR-S2):** HMAC SHA-256 over `timestamp.body` with the configured secret; timestamp material defeats replay of stale captures.
 - **Tenant isolation (NFR-S7):** non-enumerable UUIDv4 ids plus mandatory `client_id` scoping on every read; cross-tenant attempts return `404` (BOLA/IDOR prevention).
 - **SSRF protection (NFR-S6, AC14):** URL allow-policy enforcing HTTPS, resolving and rejecting loopback, RFC 1918, link-local, and `169.254.169.254` metadata targets before any socket is opened.
-- **SQL safety (NFR-S4):** parameterized/prepared statements exclusively across all three adapters.
+- **SQL safety (NFR-S4):** parameterized/prepared statements exclusively in the SQLite adapter.
 - **Secret hygiene (NFR-S3):** env-only secrets; structured logger redactors for `Authorization`, `x-api-key`, HMAC secret, and payloads (mitigates R6).
 - **Rate limiting (NFR-S5):** basic fixed window on ingestion protects the embedded DB.
 - **Privacy:** payloads are operator-supplied business data; storage is local to the configured database; no third-party data flows.
@@ -277,7 +278,7 @@ On each poll cycle the scheduler additionally claims rows where `status = 'proce
 | Worker crash mid-dispatch          | Stale lease reclaimed after threshold; delivery may repeat (at-least-once, C4)                                    | FR-5, AC9    |
 | Process restart                    | All events/attempts/config persist; scheduler resumes; in-flight rows reclaimed                                   | AC11, NFR-R1 |
 | DB unavailability                  | Scheduler backs off and logs; host process remains healthy; ingestion returns `503`                               | NFR-R3       |
-| SQLite write contention            | `BEGIN IMMEDIATE` + WAL + `busy_timeout`; throttled claim frequency; logged guidance to migrate to Postgres/MySQL | R1           |
+| SQLite write contention            | `BEGIN IMMEDIATE` + WAL + `busy_timeout`; throttled claim frequency; any move to PostgreSQL/MySQL requires the v2.0 adapter plan | R1 |
 | Config misvalidation               | Safe fallback to defaults (base 1 s, cap 60 s, full jitter) on startup validation failure                         | R5           |
 
 ---
@@ -286,7 +287,7 @@ On each poll cycle the scheduler additionally claims rows where `status = 'proce
 
 - **Observability (G7):** structured JSON logs (`LOG_LEVEL`) for every lifecycle transition — claim, dispatch, attempt outcome, state change, recovery sweep. Full attempt audit queryable via `GET /webhooks/:id/attempts`. Log-based observability only in v1; Prometheus/OTel export deferred to v1.1.
 - **Performance (G6, NFR-P1–P4):** p95 ingestion < 50 ms on local SQLite; claim poll interval configurable with idle CPU < 10%; batch claiming (default batch size 10) amortizes transaction overhead; ≥ 200 events/s sustained ingestion target.
-- **Compatibility and accessibility:** backend library — UI accessibility standards do not apply; accessibility of concern is API ergonomics (consistent error shapes, documented contracts). Compatibility: Node ≥ 24.x, TypeScript strict, all three DB engines through one interface (NFR-C2/C3), embedded and standalone modes (NFR-C4).
+- **Compatibility and accessibility:** backend library — UI accessibility standards do not apply; accessibility of concern is API ergonomics (consistent error shapes, documented contracts). Compatibility: Node ≥ 24.x, TypeScript strict, SQLite in v1.0; PostgreSQL/MySQL adapters deferred to v2.0; embedded and standalone modes (NFR-C4).
 
 ---
 
@@ -298,7 +299,7 @@ On each poll cycle the scheduler additionally claims rows where `status = 'proce
 | ------------------ | ------------------------------ | ----------------------------------------------------------------------------------- |
 | Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, timing-safe auth     |
 | Integration        | Vitest + mock endpoints        | Ingestion idempotency (AC1/AC2), retry lifecycle (AC4–AC6), restart recovery (AC11) |
-| Per-DB concurrency | Vitest × SQLite/Postgres/MySQL | ≥ 100 parallel claims per engine, zero double-claims (AC3)                          |
+| SQLite concurrency | Vitest × SQLite                | ≥ 100 parallel claims, zero double-claims (AC3)                                     |
 | Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
 | Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
 
@@ -307,7 +308,7 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 ### 9.2 Migration and Deployment
 
 - Deployment is a library import or a single-process HTTP service (`pnpm dev` / built output); migrations apply automatically on startup before the scheduler activates.
-- Environment prerequisites (D4): `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_PATH`, `WEBHOOK_URL`, `API_KEY`, `HMAC_SECRET`, DB connection settings.
+- Environment prerequisites (D4): `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`, `WEBHOOK_URL`, `API_KEY`, and `HMAC_SECRET`; v1.0 has no PostgreSQL/MySQL connection settings.
 - Rollback strategy: forward-only migrations; rollback is a previous release binary against a compatible schema (additive-only changes in v1.x).
 - WBS traceability: design covers WBS 1.0–8.0; the implementation phase begins only after design-checkpoint approval per master rules.
 
@@ -318,14 +319,14 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 | Decision               | Selected Option                                                                              | Rejected Alternatives & Rationale                                                                                      |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Queue substrate        | Relational tables + atomic conditional `UPDATE` claim                                        | External broker (Redis/Kafka/RabbitMQ) — violates lightweight-embeddable constraint C2 and adds operational surface    |
-| Claim primitive        | Unified conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows | `SELECT ... FOR UPDATE SKIP LOCKED` — not portable to SQLite and MySQL < 8.0 (risk R2)                                 |
+| Claim primitive        | SQLite conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows | Row-locking designs are unnecessary for v1's SQLite-only scope and require a separate dialect decision in v2.0                         |
 | Delivery semantics     | At-least-once with consumer deduplication by system `id`                                     | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)           |
 | Retry policy           | Bounded exponential backoff with **full jitter**                                             | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                             |
 | Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
 | Stale-lease recovery   | Scheduler-driven stale-claim sweep each poll cycle                                           | Heartbeat-only leases — extra write amplification; mechanism finalized at design checkpoint (ADR required)             |
 | Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 
-**Related ADRs** (to be filed under `docs/02-design/adr/` using `templates/ADR-template.md` and referenced here once ratified at the design checkpoint): ADR-0001 unified atomic-claim pattern across dialects; ADR-0002 stale-lease recovery mechanism; ADR-0003 migration runner selection; ADR-0004 non-retryable 4xx classification.
+**Related ADRs:** ADR-0001 SQLite atomic-claim pattern; ADR-0002 stale-lease recovery mechanism; ADR-0003 SQLite migration runner selection; ADR-0004 non-retryable 4xx classification. Future database dialects require separate design and validation.
 
 **Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC14), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R1–R7). Per master rules, coding begins only after explicit design-checkpoint approval of this document by the Product Engineer, Tech Lead, and stakeholder.
 
@@ -372,15 +373,11 @@ src/
 ├── storage/                   # Persistence layer (drivers + migrations)
 │   ├── adapters/
 │   │   ├── sqlite.adapter.ts          # better-sqlite3, WAL, BEGIN IMMEDIATE
-│   │   ├── postgres.adapter.ts        # pg pool, ON CONFLICT DO NOTHING
-│   │   └── mysql.adapter.ts           # mysql2 pool, INSERT IGNORE
 │   ├── migrations/
-│   │   ├── runner.ts                  # Loads sibling sql/<dialect>/ scripts (ADR-0003)
+│   │   ├── runner.ts                  # Applies SQLite SQL migrations (ADR-0003)
 │   │   └── sql/
 │   │       ├── sqlite/                # Versioned SQLite .sql files
-│   │       ├── postgres/              # Versioned PostgreSQL .sql files
-│   │       └── mysql/                 # Versioned MySQL .sql files
-│   └── storage.test.ts                # Per-dialect concurrency & parity tests
+│   └── storage.test.ts                # SQLite schema and persistence tests
 ├── security/                  # Cross-cutting security primitives
 │   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
 │   ├── ssrf.ts                        # URL resolver + private/metadata guard (AC14)
@@ -396,7 +393,7 @@ src/
 │   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
 │   └── validation.ts                  # Shared schema validators
 └── config/                    # Configuration surface
-    ├── env.ts                         # Env parsing: PORT, DATABASE_PATH, secrets (D4)
+    ├── env.ts                         # Env parsing: PORT, DATABASE_URL, secrets (D4)
     ├── engine.config.ts               # EngineConfig defaults & validation (R5)
     └── config.test.ts                 # Fallback-to-defaults tests
 ```
@@ -405,7 +402,7 @@ src/
 
 - **features → core, storage, security, shared, config:** allowed. Features never import each other directly; cross-feature interaction goes through `core/ports.ts` interfaces (e.g., the scheduler consumes `DatabaseAdapter` contracts, not ingestion internals).
 - **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
-- **storage** is the only layer that imports database drivers (`better-sqlite3`, `pg`, `mysql2`); all statements remain parameterized (NFR-S4).
+- **storage** is the only layer that imports database drivers (`better-sqlite3` in v1.0); all statements remain parameterized (NFR-S4). PostgreSQL/MySQL drivers are deferred to v2.0.
 - **security** is the only layer implementing auth, SSRF, and rate-limit primitives; features call it as middleware, keeping FR-7/FR-9 enforcement consistent across routes.
 - **app/** is the only place that instantiates concrete adapters and wires features together (composition root). Entry points: `embedded.ts` for library consumers, `http.server.ts` for the standalone service — both sharing `engine.ts` wiring, satisfying NFR-C4 (identical internals, differing transport only).
 

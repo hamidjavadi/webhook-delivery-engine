@@ -22,3 +22,6 @@ dist-ssr
 
 # Environment variables
 .env
+
+# Test coverage
+coverage

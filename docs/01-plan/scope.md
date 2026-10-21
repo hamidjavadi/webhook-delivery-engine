@@ -20,21 +20,17 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 - **Dual-Table Schema:**
   - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, authenticated `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
   - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
-- **Multi-Dialect Database Adapters:**
-  - Unified adapter interface with native driver support for:
-    - SQLite (`better-sqlite3`)
-    - PostgreSQL (`pg`)
-    - MySQL (`mysql2`)
+- **Database Adapter:** Clean abstraction layer supporting SQLite (`better-sqlite3`) with WAL mode. (PostgreSQL and MySQL are deferred to v2.0).
 - **Atomic Claim Mechanism:**
-  - Unified driver-agnostic conditional `UPDATE` query pattern preventing concurrent claims on the same eligible row (`status IN ('pending', 'retry')` where `next_retry_at <= NOW()`) across SQLite, PostgreSQL, and MySQL, with final locking strategy ratified in the SDD.
-  - Stale claim recovery for worker crashes (reclaiming rows stuck in `processing` past lease/timeout thresholds; final mechanism fixed at design checkpoint).
+  - A SQLite conditional `UPDATE` claim operation ensuring no concurrent double-claim across workers; the adapter contract remains driver-neutral.
+  - Stale claim recovery for worker crashes or network partitions.
 
 ### 2.2 Core Ingestion & Delivery Engine
 
 - **Idempotent Ingestion & Tenant Isolation:**
   - System-generated cryptographically secure `id` assigned per event; client supplies only `idempotency_key` and payload.
   - Per-tenant idempotency enforced via `UNIQUE(client_id, idempotency_key)` constraint.
-  - Single-statement atomic upsert (`INSERT ... ON CONFLICT DO NOTHING` / `INSERT IGNORE`).
+  - SQLite single-statement atomic upsert (`INSERT ... ON CONFLICT DO NOTHING`).
   - Replay detection on HTTP `202 Accepted` responses, returning both system `id` and `idempotency_key` along with an `idempotent_replay: true|false` indicator without duplicate queueing.
 - **Delivery & Retry Policy:**
   - Strictly at-least-once delivery semantics; consumers deduplicate using the system-generated event `id` supplied in delivery headers and body.
@@ -81,7 +77,7 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 | **Distributed Multi-Node Coordination**  | Out-of-Scope   | No Raft, Zookeeper, or cross-instance gossip. Concurrency safety is enforced at the database row level.      |
 | **Non-HTTP Protocols**                   | Out-of-Scope   | Supports HTTP/HTTPS webhooks only (no gRPC, WebSockets, or AMQP targets).                                    |
 | **Consumer-Side Verification SDKs**      | Deferred       | Consumers implement verification using standard HMAC SHA-256 libraries.                                      |
-| **Alternative Databases**                | Out-of-Scope   | SQLite, PostgreSQL, and MySQL only. No MongoDB, Redis, or DynamoDB support.                                  |
+| **Alternative Databases & Multi-Dialect**| Out-of-Scope   | v1.0.0 is SQLite-only. PostgreSQL, MySQL, MongoDB, Redis, and DynamoDB are deferred to v2.0.                 |
 
 ---
 
