@@ -2,16 +2,16 @@
 
 | Field            | Value                                                    |
 | ---------------- | -------------------------------------------------------- |
-| **Status**       | Draft (v1.0.0) — awaiting design-checkpoint approval     |
+| **Status**       | Approved (v1.0.0) — includes approved Task 2.3 adapter design |
 | **Owner**        | Product Engineer (Hamid Javadi)                          |
 | **Date**         | 2026-10-15                                               |
 | **Version**      | 1.0.0                                                    |
-| **Template**     | `templates/SDD-template.md` (agents.zip)                 |
+| **Template**     | `.agent-rules/templates/SDD-template.md`                 |
 | **Linked PRD**   | `PRD.md` (v1.0.0, Approved/Baseline)                     |
 | **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                   |
 | **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)              |
 | **Linked Risks** | `risks.md`                                               |
-| **Related ADRs** | `docs/02-design/adr/` (to be filed at design checkpoint) |
+| **Related ADRs** | `docs/02-architecture/ADR/`                               |
 
 ---
 
@@ -91,7 +91,7 @@ Ingestion path (synchronous, fast): request → auth (constant-time) → validat
 | Module                                 | Responsibility                                                                                                                                                                                                                                           | Key Dependencies                 |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
-| **Persistence Adapter** (WBS 2.3)      | SQLite implementation using `better-sqlite3`, WAL, `busy_timeout=5000`, and parameterized statements. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
+| **Persistence Adapter** (WBS 2.3)      | Storage-owned `SqliteDatabaseAdapter` opens better-sqlite3, configures WAL, `busy_timeout=5000`, and foreign keys, applies SQLite migrations before returning, and implements `DatabaseAdapter` with parameterized SQL. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
 | **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
 | **Auth Middleware** (WBS 3.1)          | Bearer/`x-api-key` verification via `crypto.timingSafeEqual` over SHA-256 pre-hashed fixed-length buffers; no early exits; resolves `client_id` for tenant stamping.                                                                                     | Domain Types                     |
 | **Validator / SSRF Guard** (WBS 3.2)   | Zod-style payload schema validation; URL resolution blocking loopback, RFC 1918, link-local, and cloud-metadata (`169.254.169.254`) targets before any dispatch.                                                                                         | Domain Types                     |
@@ -159,13 +159,21 @@ Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attem
 - PostgreSQL and MySQL dialect mappings, schemas, drivers, and adapters are deferred to v2.0 and are not shipped or supported by the v1.0 runtime.
 - Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
 
-### 4.4 Migration Policy
+### 4.4 SQLite Adapter Behavior
+
+`src/storage/sqlite.adapter.ts` is the sole production module that imports `better-sqlite3` or contains adapter SQL. Its asynchronous `open` factory accepts a database filename, opens the connection, enables WAL, sets `busy_timeout=5000` and foreign-key enforcement, applies the bundled SQLite migration, and returns the adapter only after initialization succeeds. If setup or migration fails, it closes the connection and propagates the error. The adapter exposes `close()` for owner-controlled shutdown; downstream modules consume only `DatabaseAdapter`.
+
+All writes are parameterized. JSON values are validated and serialized to JSON text at write boundaries and parsed/validated when read; timestamps are validated and stored as normalized UTC ISO-8601 strings. Tenant-scoped lookup/list/attempt queries always bind `client_id`. Pagination is bounded to 1–1,000 rows and orders by `(created_at, id)` to provide a stable cursor.
+
+Claiming selects `pending` rows with no retry time or a due retry time, and `retry` rows whose retry time is due; it changes status, lease owner/time, attempt count, and update time within one `BEGIN IMMEDIATE` transaction. Stale-lease recovery only changes expired leases; release only changes a lease owned by the requesting worker and reverses its reserved attempt count. Attempt insertion and the corresponding terminal/retry event transition are one `BEGIN IMMEDIATE` transaction: validate the current lease and next attempt ordinal, append the audit row, update state and retry time, and clear lease fields. A stale owner or invalid transition returns `false` without partial writes; database/serialization errors reject the operation.
+
+### 4.5 Migration Policy
 
 Migrations are hand-written, forward-only SQL versioned in-repo under `src/storage/migrations/sql/sqlite/` and applied by the in-house SQLite runner. The runner owns `schema_migrations(version, checksum, applied_at)`, loads SQL files in version order, computes SHA-256 checksums, skips already-applied files with matching checksums, rejects changed or missing applied files, and applies each pending set within one SQLite `BEGIN IMMEDIATE`/`COMMIT` transaction (rolling back on failure). The DDL files do not start nested transactions. PostgreSQL and MySQL migrations are deferred to v2.0. No down-migrations or destructive auto-migrations are supported; a schema change requires an ADR (see §10).
 
-The runner is implemented at `src/storage/migrations/runner.ts` against the SQLite connection surface, with all database operations confined to storage. `src/app/bootstrap.ts` is the composition seam: it awaits SQLite migrations before invoking the supplied application-start callback, and does not itself instantiate a server or scheduler. Automated migration/schema tests use Node.js `node:sqlite`; no PostgreSQL/MySQL test services or environment variables are required for v1.0. The core domain has no driver dependencies.
+The runner is implemented at `src/storage/migrations/runner.ts` against the SQLite connection surface, with all database operations confined to storage. Runtime composition awaits `SqliteDatabaseAdapter.open()` before starting the scheduler or server; that factory owns connection configuration and migrations. `src/app/bootstrap.ts` remains a lower-level migration seam for callers that manage a raw SQLite connection and must not be layered around `open()` for the same database. Automated migration/schema tests use Node.js `node:sqlite`; adapter integration tests use better-sqlite3 on temporary files. No PostgreSQL/MySQL test services or environment variables are required for v1.0. The core domain has no driver dependencies.
 
-### 4.5 Sensitive Data and Retention
+### 4.6 Sensitive Data and Retention
 
 Secrets (`API_KEY`, `HMAC_SECRET`, DB credentials) live only in environment configuration, never in the database, logs, or VCS. Payloads and response snippets are stored for the lifetime of the event row; retention beyond that is operator-managed (v1 provides no automatic purge — consistent with the out-of-scope DLQ/re-drive deferral).
 
