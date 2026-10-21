@@ -52,5 +52,5 @@ We select an **In-House, Programmatic SQLite Migration Runner** inside the stora
 
 - **Implementation:** Validate the storage-layer runner with fresh SQLite databases, idempotent reruns, checksum drift detection, and transactional rollback.
 - **References:**
-  - `SDD.md` (§3 Technology Stack, §4.4 Data Model & Migrations, §9.2 Deployment)
-  - `03-tdd.md` & `05-testing-qa.md` (Concurrency and Migration Verification)
+  - [`SDD.md`](../SDD.md) (§3 Technology Stack, §4.4 Data Model & Migrations, §9.2 Deployment)
+  - [`03-tdd.md`](../../../.agent-rules/03-tdd.md) & [`05-testing-qa.md`](../../../.agent-rules/05-testing-qa.md) (Concurrency and Migration Verification)

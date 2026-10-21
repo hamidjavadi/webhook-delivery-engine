@@ -34,7 +34,7 @@ However, treating all 4xx status codes as retryable leads to resource waste and 
 ### Option 3: Configurable Per-Tenant or Global 4xx Blacklist/Whitelist
 
 - **Pros:** Ultimate flexibility.
-- **Cons:** Violates out-of-scope constraints (`scope.md` §3: per-tenant configuration out of scope for v1.0.0) and adds unnecessary operational complexity.
+- **Cons:** Violates out-of-scope constraints ([`scope.md`](../../01-plan/scope.md) §3: per-tenant configuration out of scope for v1.0.0) and adds unnecessary operational complexity.
 
 ## Decision
 
@@ -79,6 +79,6 @@ When an outbound delivery results in a **Non-Retryable 4xx** status code:
 - **Implementation:** Integrated into the Outbound Delivery Worker module (`src/workers/delivery.ts`) and database state machine logic.
 - **Testing:** Unit and integration tests added to verify that 400, 401, 403, 404, 410, and 422 immediately transition events to `failed`, while 429 and 5xx schedule retries with full jitter.
 - **References:**
-  - `PRD.md` (§4 Functional Requirements FR-17)
-  - `SDD.md` (§5.5 Outbound Delivery Contract, §7.2 Failure Modes, §10 Options and Trade-offs)
-  - `scope.md` (§2 In-Scope Delivery Engine behavior)
+  - [`PRD.md`](../../01-plan/PRD.md) (§4 Functional Requirements FR-17)
+  - [`SDD.md`](../SDD.md) (§5.5 Outbound Delivery Contract, §7.2 Failure Modes, §10 Options and Trade-offs)
+  - [`scope.md`](../../01-plan/scope.md) (§2 In-Scope Delivery Engine behavior)
