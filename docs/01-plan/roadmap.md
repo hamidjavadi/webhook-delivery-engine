@@ -28,7 +28,7 @@
 - **Key Milestones:**
   - `M2.1`: Constant-time API-key authentication using SHA-256 pre-hashed credentials, resolving the configured `clientId` only on success and producing one unauthorized result for missing or invalid credentials.
   - `M2.2`: Ingestion request schema and HTTPS destination validator reject malformed input, embedded URL credentials, and literal or DNS-resolved unsafe IPv4/IPv6 addresses before dispatch; the dispatcher revalidates addresses at connection time to mitigate DNS rebinding.
-  - `M2.3`: Atomic upsert ingestion pipeline responding uniformly with `202 Accepted` returning system `id`, `idempotency_key`, and `idempotent_replay: true|false`.
+  - `M2.3`: Validated ingestion service accepts only authenticated tenant identity, applies the configured destination fallback under the same SSRF checks, and atomically upserts by tenant/key; new and replay responses expose the same system id with an explicit replay flag and pending status. HTTP server/routes are not part of WBS 3.3.
 - **Mapped WBS Items:** WBS 3.0 (3.1, 3.2, 3.3).
 - **Exit Criteria (DoD):** 1,000 concurrent duplicate ingestion requests produce exactly 1 stored event with zero race conditions.
 

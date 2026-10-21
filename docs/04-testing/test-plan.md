@@ -3,10 +3,11 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, and 3.2: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, and 3.3: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
-  atomic claim, authentication, ingestion input validation, and SSRF URL
-  validation. PostgreSQL and MySQL are deferred to v2.0 and are not part of
+  atomic claim, authentication, ingestion input validation and SSRF URL
+  validation, plus composition of these contracts with atomic idempotent
+  ingestion. PostgreSQL and MySQL are deferred to v2.0 and are not part of
   v1.0 validation.
 
 ## Goals and Out of Scope
@@ -45,6 +46,19 @@ link-local, unspecified, multicast, reserved, IPv4-mapped, and cloud metadata
 addresses, including mixed public/private DNS answers. Resolver tests use
 deterministic mocked DNS answers; no external DNS or network is contacted.
 
+For Task 3.3, verify the handler requires successful authentication and a
+validated parsed request, derives tenant identity only from the auth result,
+uses the configured `WEBHOOK_URL` only when the optional destination is
+omitted, and applies the same SSRF validation to that fallback. Verify new
+events return the complete 202 application result and duplicate submissions
+return the same stored event id with replay=true without overwriting the
+original event. Include independent tenant keys, concurrent calls to the real
+SQLite adapter at the PRD threshold (at least 1,000 submissions), invalid
+auth/schema/destination cases, and propagated storage errors. Because WBS 3.3
+does not implement HTTP transport, route registration and wire-level E2E tests
+are excluded. An invalid configured fallback must return a generic 500
+configuration error and leave the adapter untouched.
+
 ## Strategy and Layers (Unit / Integration / E2E)
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
@@ -55,6 +69,8 @@ deterministic mocked DNS answers; no external DNS or network is contacted.
   the native driver and real schema. No external DB service or credentials are
   required.
 - **E2E:** Not applicable; no running application or transport exists yet.
+  WBS 3.3 remains a handler-plus-SQLite integration test; HTTP-level E2E is
+  deferred until transport integration is implemented.
 
 ## Test Cases and Acceptance-Criteria Traceability
 
@@ -85,6 +101,12 @@ deterministic mocked DNS answers; no external DNS or network is contacted.
 | Ingestion body accepts exactly the documented fields and JSON-compatible payload | WBS 3.2 schema unit tests |
 | Destination URL rejects non-HTTPS, malformed, or credential-bearing URLs | WBS 3.2 URL validation tests |
 | Unsafe IPv4/IPv6 literals and any unsafe DNS answer are rejected, including mapped and mixed DNS results | WBS 3.2 SSRF unit tests |
+| Handler accepts only successful authentication and strict schema output, using authenticated `clientId` as tenant | WBS 3.3 handler unit tests |
+| Omitted destination selects configured `WEBHOOK_URL`, then undergoes the same SSRF validation; supplied safe destination is preserved | WBS 3.3 handler unit tests |
+| Invalid or unsafe configured fallback returns a generic 500 configuration error without persistence | WBS 3.3 handler unit tests |
+| New event returns 202 result with generated id, key, replay=false, and pending status; duplicate returns same id with replay=true and does not overwrite the persisted event | WBS 3.3 handler/SQLite integration tests |
+| Same tenant/key submitted at least 1,000 times concurrently yields exactly one stored row and stable replay identity; same key under another tenant yields a separate row | WBS 3.3 SQLite concurrency integration test |
+| Authentication, schema, destination, and storage failures are surfaced without a successful result or partial event write | WBS 3.3 handler/SQLite integration tests |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
@@ -394,3 +416,27 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Go/No-Go:** Go for the WBS 3.2 validator and request-schema scope. No
   end-to-end ingestion or dispatch claim is made; those integrations are
   downstream work.
+
+### Task 3.3 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
+- **TDD red check:** The new handler test file initially failed because the
+  ingestion handler module did not exist. After implementation, all focused
+  handler tests passed, including the real-SQLite duplicate-submission test.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (10 files, 118
+  tests). The handler suite verifies authentication and schema short-circuits,
+  supplied and fallback destination validation, generated event fields, new
+  event and replay responses, storage error propagation, tenant isolation, and
+  1,000 concurrent duplicate submissions across two SQLite adapter instances.
+- **Coverage:** 97.16% overall statements/lines, 92.88% branches, and 98.48%
+  functions. `src/features/ingestion/ingestion.handler.ts` measured 100% for
+  statements, lines, branches, and functions.
+- **Build/type-check/lint:** `pnpm run build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm run lint` passed.
+- **Formatting/diff:** Prettier checks and `git diff --check` passed.
+- **Limitations:** This task implements the transport-independent application
+  handler only. HTTP routes, raw-body parsing, and wire-level E2E tests remain
+  downstream work.
+- **Go/No-Go:** Go for WBS 3.3. Authentication, validation, fallback
+  destination handling, and atomic idempotent persistence are verified; no
+  HTTP transport or dispatch behavior is claimed.

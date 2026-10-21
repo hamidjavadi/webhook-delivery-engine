@@ -59,6 +59,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
   - `GET /webhooks`: List events filtered by `status`, scoped to caller's `client_id`.
   - `GET /webhooks/:id`: Fetch current event status and delivery metadata by system `id` or `idempotency_key`, scoped to caller's `client_id`.
   - `GET /webhooks/:id/attempts`: Fetch the chronological attempt history and audit trail, scoped to caller's `client_id`.
+- **WBS 3.3 delivery boundary:** Implement the ingestion application handler and its stable response contract; HTTP route registration, raw-body parsing, header extraction, and server startup remain transport/composition work and are not included in this WBS item.
 - **Global Configuration Management:**
   - Runtime readable global configuration (`timeoutLimitMs`, `maxAttempts`) fetched per cycle/hot-reloaded.
 - **Structured Logging:** Contextual JSON logs (`LOG_LEVEL`) capturing claims, dispatches, latency, attempt records, and lifecycle state transitions.
