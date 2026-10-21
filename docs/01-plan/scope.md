@@ -22,7 +22,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
   - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
 - **Database Adapter:** Implement the canonical `DatabaseAdapter` contract using `better-sqlite3`; enable WAL and `busy_timeout=5000`, parameterize all SQL, and preserve idempotency, tenant-scoped reads, worker lease ownership, and atomic attempt/state transitions. PostgreSQL and MySQL are deferred to v2.0.
 - **Atomic Claim Mechanism:**
-  - A SQLite conditional `UPDATE` claim operation ensuring no concurrent double-claim across workers; the adapter contract remains driver-neutral.
+  - A single SQLite conditional `UPDATE ... RETURNING` statement per batch, selecting only due rows and ensuring no concurrent double-claim across worker processes per ADR-0001; the adapter contract remains driver-neutral.
   - Stale claim recovery for worker crashes or network partitions.
 
 ### 2.2 Core Ingestion & Delivery Engine

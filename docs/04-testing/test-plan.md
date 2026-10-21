@@ -3,9 +3,10 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, and 2.3: core domain contracts, SQLite
-  schema/migrations, and the better-sqlite3 storage adapter. PostgreSQL and
-  MySQL are deferred to v2.0 and are not part of v1.0 validation.
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, and 2.6: core domain contracts,
+  SQLite schema/migrations, the better-sqlite3 storage adapter, and its
+  single-statement atomic claim. PostgreSQL and MySQL are deferred to v2.0 and
+  are not part of v1.0 validation.
 
 ## Goals and Out of Scope
 
@@ -20,6 +21,9 @@ against a real better-sqlite3 database, including transaction rollback,
 concurrent claims, tenant isolation, lease-owner checks, JSON/timestamp mapping,
 and SQL-injection-shaped input. Runtime configuration parsing and delivery
 logic remain outside this scope.
+For Task 2.6, verify the claim executes as one conditional `UPDATE ... RETURNING`
+statement and run competing independent processes against a shared temporary
+SQLite file; every event id must be returned to at most one worker.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
@@ -49,6 +53,8 @@ logic remain outside this scope.
 | Upsert and event reads preserve tenant-scoped idempotency and JSON/ISO timestamp mappings | SQLite adapter integration tests |
 | Event listing orders stably, scopes tenants, and enforces a maximum page size of 1,000 | SQLite adapter integration tests |
 | Due claims are exclusive and lease changes obey worker ownership | SQLite adapter integration tests |
+| One atomic `UPDATE ... RETURNING` statement selects due ordered rows, reserves attempts, stamps leases, and returns complete claimed events | `src/storage/sqlite.adapter.test.ts` |
+| Competing independent processes claim a shared due-event batch with zero duplicate ids and no attempt-count drift | `src/storage/sqlite.adapter.test.ts` |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
@@ -76,9 +82,10 @@ credentials or external services.
 
 Review tenant idempotency uniqueness, state/status constraints, lease field
 consistency, FK cascade behavior, checksums, transaction rollback after partial
-DDL, and parameter binding. SQLite tests use isolated in-memory or temporary
-on-disk databases. PostgreSQL/MySQL checks are out of v1.0 scope. Accessibility
-and performance testing do not apply to these storage contracts.
+DDL, parameter binding, and atomic claim correctness under process contention.
+SQLite tests use isolated in-memory or temporary on-disk databases.
+PostgreSQL/MySQL checks are out of v1.0 scope. Accessibility and performance
+testing do not apply to these storage contracts.
 
 ## Coverage: minimum 80% overall, 95% for critical paths
 
@@ -246,3 +253,33 @@ completion, append actual command results and the Go/No-Go decision here.
   pragmas.
 - **Open bugs:** None identified in the approved SQLite adapter scope.
 - **Go/No-Go:** Go for WBS Task 2.3 under the approved SQLite-only v1.0 scope.
+
+### Task 2.6 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; better-sqlite3 11.10.0
+  using a shared temporary on-disk SQLite database.
+- **TDD red checks:** A claim-contract test failed against the prior
+  SELECT/UPDATE/SELECT implementation because it did not contain one
+  conditional `UPDATE ... RETURNING` statement. A concurrent due-claim test
+  caught pending events with future retry timestamps being eligible; the claim
+  predicate was tightened to include only due `pending` and `retry` rows.
+- **Cross-process test:** Four independent Node.js processes each claimed one
+  batch from the same database; all 24 events were claimed exactly once, six
+  per process, with matching lease owners and `attempt_count = 1`.
+- **Final tests, coverage, build, lint, type-check, format, and diff results:**
+- **Final tests:** `pnpm exec vitest run --coverage` passed (6 files, 49
+  tests). The cross-process contention test also passed five consecutive
+  independent runs.
+- **Coverage:** 96.23% overall lines/statements, 98.03% functions, and 89.79%
+  branches. The storage adapter measured 95.85% lines/statements, 97.67%
+  functions, and 88.81% branches. The claim method was exercised by the
+  boundary, source-contract, and cross-process tests; reported line/function
+  coverage exceeds 95%.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier checks and `git diff --check HEAD` passed.
+- **Validation note:** Vitest 3.2.7 does not support the attempted
+  `--repeat-each` option; the repeated cross-process test was instead run five
+  times in a shell loop, and all five runs passed.
+- **Open bugs:** None identified in the approved SQLite atomic-claim scope.
+- **Go/No-Go:** Go for WBS Task 2.6 under the approved SQLite-only v1.0 scope.
