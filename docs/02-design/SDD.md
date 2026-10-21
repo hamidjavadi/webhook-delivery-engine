@@ -11,7 +11,7 @@
 | **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                   |
 | **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)              |
 | **Linked Risks** | `risks.md`                                               |
-| **Related ADRs** | `docs/02-architecture/ADR/`                               |
+| **Related ADRs** | `docs/02-design/adr/`                                      |
 
 ---
 
@@ -362,7 +362,7 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 | Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 | Destination validation | ADR-0005: Node built-ins, HTTPS-only strict URL parsing, all-address DNS validation, and fail-closed handling; dispatcher must later pin/revalidate | URL syntax-only validation misses hostname SSRF; a new IP library does not solve the future connection-pinning boundary |
 
-**Related ADRs:** ADR-0001 SQLite atomic-claim pattern; ADR-0002 stale-lease recovery mechanism; ADR-0003 SQLite migration runner selection; ADR-0004 non-retryable 4xx classification; ADR-0005 SSRF-safe destination validation. Future database dialects require separate design and validation.
+**Related ADRs:** [ADR-0001 — Atomic Claim](adr/ADR-0001-unified-atomic-claim-pattern.md); [ADR-0002 — Stale-Lease Recovery](adr/ADR-0002-stale-lease-recovery-mechanism.md); [ADR-0003 — Migration Runner](adr/ADR-0003-migration-runner-selection.md); [ADR-0004 — 4xx Classification](adr/ADR-0004-non-retryable-4xx-classification.md); [ADR-0005 — SSRF Validation](adr/ADR-0005-ssrf-destination-validation.md). Future database dialects require separate design and validation.
 
 **Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC14), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R1–R7). Per master rules, coding begins only after explicit design-checkpoint approval of this document by the Product Engineer, Tech Lead, and stakeholder.
 

@@ -60,3 +60,8 @@ UPDATE webhook_events
    WHERE status = 'processing'
          AND locked_at < datetime('now', '-90 seconds');
 ```
+
+## References
+
+- [`SDD.md`](../SDD.md) (§6.3 stale-lease recovery flow).
+- [`WBS.md`](../../01-plan/WBS.md) (Tasks 2.7 and 4.1).

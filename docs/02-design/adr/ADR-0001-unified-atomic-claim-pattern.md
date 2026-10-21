@@ -50,5 +50,5 @@ WHERE id IN (
 
 ## Migration/Review Plan and References
 
-- **References:** SDD.md (§6.3, §10), WBS (Work Package 2.6–2.7).
+- **References:** [`SDD.md`](../SDD.md) (§6.3, §10), [`WBS.md`](../../01-plan/WBS.md) (Work Packages 2.6–2.7).
 - **Review Plan:** Validated during the design checkpoint review prior to worker implementation.
