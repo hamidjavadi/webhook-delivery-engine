@@ -41,6 +41,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 ### 2.3 Security & Protection
 
 - **Constant-Time Ingestion Authentication & Access Control:**
+  - v1 authenticates one configured API key associated with one configured `clientId`; key registries and per-tenant key management are out of scope.
   - Ingestion endpoints secured via Bearer token / API Key using `crypto.timingSafeEqual` over equal-length derived/hashed buffers with no early exits to prevent timing attacks.
   - Authenticated identity resolved to `client_id` and stamped onto all ingested event rows.
 - **Tenant Data Isolation & BOLA/IDOR Prevention:**

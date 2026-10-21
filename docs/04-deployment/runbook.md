@@ -14,8 +14,10 @@ application components start. PostgreSQL and MySQL are not supported in v1.0.
 **Release blocker:** the application entry point, HTTP server, and WBS 4.1
 polling loop are not implemented yet. WBS 2.7 supplies the atomic stale-lease
 recovery operation, but no background process invokes it until the poll loop
-is delivered. Do not deploy this revision as a functioning delivery service
-or rely on automatic stale-lease recovery.
+is delivered. WBS 3.1 supplies a credential authenticator, but no HTTP route
+extracts credentials or maps its unauthorized result to an actual response yet.
+Do not deploy this revision as a functioning delivery service or rely on
+automatic stale-lease recovery or HTTP authentication.
 
 ## Prerequisites
 
