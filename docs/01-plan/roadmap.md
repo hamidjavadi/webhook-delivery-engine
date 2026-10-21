@@ -39,7 +39,7 @@
 - **Estimated Effort:** ~22h (WBS 4.0: 8h, WBS 5.0: 14h)
 - **Objective:** Implement the background polling loop, HTTP client dispatcher, cryptographic delivery signing, and bounded exponential backoff.
 - **Key Milestones:**
-  - `M3.1`: Polling coordinator with configurable batch size and graceful SIGINT/SIGTERM lease release.
+  - `M3.1`: Polling coordinator performs stale recovery before configurable atomic batch claims, throttles empty cycles, and passes claimed events to the worker seam; OS signal handling and in-flight draining remain a separate WBS 4.2 deliverable.
   - `M3.2`: Outbound request signer emitting canonical `x-webhook-signature` (HMAC SHA-256) and `x-webhook-timestamp`.
   - `M3.3`: Native fetch dispatcher bound to a strict 10s `AbortController` timeout.
   - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$, treating only 2xx as success and 4xx (including 429) & 5xx as retryable.

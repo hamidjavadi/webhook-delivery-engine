@@ -3,12 +3,11 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, and 3.3: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, and 4.1: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
   atomic claim, authentication, ingestion input validation and SSRF URL
-  validation, plus composition of these contracts with atomic idempotent
-  ingestion. PostgreSQL and MySQL are deferred to v2.0 and are not part of
-  v1.0 validation.
+  validation, atomic idempotent ingestion, and poll-cycle coordination.
+  PostgreSQL and MySQL are deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
 
@@ -59,6 +58,15 @@ does not implement HTTP transport, route registration and wire-level E2E tests
 are excluded. An invalid configured fallback must return a generic 500
 configuration error and leave the adapter untouched.
 
+For Task 4.1, verify each poll cycle calls stale-lease recovery once before
+claiming due events, passes configured timeout and batch values, and sends only
+claimed events to the worker seam. Verify empty batches wait for the configured
+interval, adapter failures are reported without ending the scheduler, and later
+cycles resume. Use real SQLite integration tests for recovery/claim ordering
+and a bounded local idle benchmark to measure scheduler CPU overhead against
+the 10% target. OS signal registration and in-flight dispatch draining are
+excluded because they belong to WBS 4.2.
+
 ## Strategy and Layers (Unit / Integration / E2E)
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
@@ -107,6 +115,9 @@ configuration error and leave the adapter untouched.
 | New event returns 202 result with generated id, key, replay=false, and pending status; duplicate returns same id with replay=true and does not overwrite the persisted event | WBS 3.3 handler/SQLite integration tests |
 | Same tenant/key submitted at least 1,000 times concurrently yields exactly one stored row and stable replay identity; same key under another tenant yields a separate row | WBS 3.3 SQLite concurrency integration test |
 | Authentication, schema, destination, and storage failures are surfaced without a successful result or partial event write | WBS 3.3 handler/SQLite integration tests |
+| Every poll cycle recovers stale leases before atomically claiming a configured-size batch and passes only claimed events to the worker seam | WBS 4.1 scheduler unit and SQLite integration tests |
+| Empty queue cycles throttle for the configured poll interval; transient adapter failures are reported and polling resumes | WBS 4.1 scheduler unit tests |
+| Idle scheduler CPU overhead stays below 10% in the documented local benchmark | WBS 4.1 performance test |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |

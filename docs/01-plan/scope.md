@@ -24,6 +24,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 - **Atomic Claim Mechanism:**
   - A single SQLite conditional `UPDATE ... RETURNING` statement per batch, selecting only due rows and ensuring no concurrent double-claim across worker processes per ADR-0001; the adapter contract remains driver-neutral.
   - SQLite stale-lease recovery for worker crashes or network partitions: atomically transition only `processing` rows with `locked_at < now - max(timeoutLimitMs + 30000 ms, 90000 ms)` to `retry`, clear lease ownership, and set retry eligibility to `now + 10000 ms`. The adapter operation is WBS 2.7; the scheduler poll loop that invokes it is WBS 4.1.
+  - **WBS 4.1 poll coordinator:** run configurable poll cycles, call stale-lease recovery before each atomic due-event claim, limit claims to the configured batch size, and hand only claimed events to the worker seam. Empty cycles wait for the configured interval; transient adapter failures are reported without terminating the host process. OS signal registration and in-flight dispatch draining remain WBS 4.2.
 
 ### 2.2 Core Ingestion & Delivery Engine
 
