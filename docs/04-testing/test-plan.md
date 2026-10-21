@@ -3,10 +3,11 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, and 2.7: core domain contracts,
-  SQLite schema/migrations, the better-sqlite3 storage adapter, and its
-  single-statement atomic claim. PostgreSQL and MySQL are deferred to v2.0 and
-  are not part of v1.0 validation.
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, and 3.2: core domain
+  contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
+  atomic claim, authentication, ingestion input validation, and SSRF URL
+  validation. PostgreSQL and MySQL are deferred to v2.0 and are not part of
+  v1.0 validation.
 
 ## Goals and Out of Scope
 
@@ -35,6 +36,14 @@ For Task 3.1, verify a valid configured API key resolves only to its configured
 unauthorized result. Confirm SHA-256 pre-hashing plus
 `crypto.timingSafeEqual`, and verify secrets are never included in results,
 errors, or logs.
+For Task 3.2, verify the ingestion schema accepts only `idempotency_key`,
+JSON `payload`, and optional `destination_url`; malformed/missing fields and
+unknown keys are rejected. Verify only absolute HTTPS URLs without credentials
+are accepted, literal IPv4/IPv6 addresses are classified correctly, and every
+resolved A/AAAA result is checked. Cover loopback, RFC 1918, IPv6 unique-local,
+link-local, unspecified, multicast, reserved, IPv4-mapped, and cloud metadata
+addresses, including mixed public/private DNS answers. Resolver tests use
+deterministic mocked DNS answers; no external DNS or network is contacted.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
@@ -73,6 +82,9 @@ errors, or logs.
 | Valid configured API key resolves its configured `clientId` | WBS 3.1 authentication unit tests |
 | Missing, invalid, and unequal-length API keys produce the same unauthorized result without exposing credentials | WBS 3.1 authentication unit tests |
 | Credential comparison uses equal-length SHA-256 digests and `crypto.timingSafeEqual` | WBS 3.1 authentication implementation and tests |
+| Ingestion body accepts exactly the documented fields and JSON-compatible payload | WBS 3.2 schema unit tests |
+| Destination URL rejects non-HTTPS, malformed, or credential-bearing URLs | WBS 3.2 URL validation tests |
+| Unsafe IPv4/IPv6 literals and any unsafe DNS answer are rejected, including mapped and mixed DNS results | WBS 3.2 SSRF unit tests |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
 | All adapter operations bind untrusted values as SQL parameters | SQLite adapter integration tests |
 | Strict TypeScript compilation | All exported contracts and readonly structural fixtures |
@@ -351,3 +363,34 @@ completion, append actual command results and the Go/No-Go decision here.
   and must use the returned `clientId` for tenant scoping.
 - **Go/No-Go:** Go for WBS Task 3.1 authentication primitive; route integration
   remains in downstream API work.
+
+### Task 3.2 Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
+- **TDD red check:** The new schema and SSRF test files initially failed because
+  their production modules did not exist. After implementation, all focused
+  tests passed. Interim strict type-check/lint findings in the DNS test seam
+  and URL control-character check were corrected before final verification.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (9 files, 109
+  tests). The 53 Task 3.2 tests cover strict request fields, recursive JSON
+  values, unsupported/malformed/credential-bearing URLs, IPv4 and IPv6
+  special-use ranges, non-canonical IPv4 forms, IPv4-mapped IPv6, mixed DNS
+  answers, empty results, resolver failures, and safe error results. DNS test
+  answers are mocked deterministically; no external DNS or destination
+  network request is made.
+- **Coverage:** 96.99% overall lines/statements, 98.46% functions, and 92.44%
+  branches. `src/features/ingestion/ingestion.schema.ts` measured 100% for
+  lines, statements, functions, and branches. `src/security/ssrf.ts` measured
+  98.68% lines/statements, 100% functions, and 98.41% branches; per-file 95%
+  thresholds are enforced in Vitest for both critical modules.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Formatting/diff:** Prettier checks and `git diff --check` passed.
+- **Open risks/limitations:** The validator performs preflight DNS validation,
+  not connection pinning. WBS 5.2 must revalidate/pin the resolved address and
+  disable redirects or validate each redirect before dispatch. The HTTP
+  transport remains responsible for malformed raw JSON parsing and mapping
+  schema/destination failures to HTTP 400/422.
+- **Go/No-Go:** Go for the WBS 3.2 validator and request-schema scope. No
+  end-to-end ingestion or dispatch claim is made; those integrations are
+  downstream work.

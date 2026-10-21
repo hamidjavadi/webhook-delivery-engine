@@ -49,7 +49,8 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 - **Cryptographic Delivery Signing:**
   - Outbound delivery payload signed using HMAC SHA-256 with timestamp (`timestamp.body`) to prevent replay attacks, transmitted via `x-webhook-signature` and `x-webhook-timestamp` headers.
 - **SSRF Protection:**
-  - Destination URL validation blocking private subnets (RFC 1918), loopback addresses (`127.0.0.1`, `localhost`), link-local addresses, and cloud metadata endpoints (`169.254.169.254`) prior to dispatch.
+  - Validate the documented ingestion request schema and accept only absolute HTTPS destination URLs without credentials.
+  - Resolve hostnames before dispatch and reject unsafe IPv4/IPv6 results, including loopback, private, link-local, unspecified, multicast, reserved, IPv4-mapped private addresses, and cloud metadata endpoints. Revalidate/pin resolved destinations at connection time in the dispatcher to mitigate DNS rebinding.
 
 ### 2.4 API & Observability
 
