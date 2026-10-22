@@ -42,8 +42,8 @@
   - `M3.1`: Polling coordinator performs stale recovery before configurable atomic batch claims, throttles empty cycles, and passes claimed events to the worker seam; OS signal handling and in-flight draining remain a separate WBS 4.2 deliverable.
   - `M3.2`: Outbound request signer emitting canonical `x-webhook-signature` (HMAC SHA-256) and `x-webhook-timestamp`.
   - `M3.3`: Native fetch dispatcher bound to a strict 10s `AbortController` timeout.
-  - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$, treating only 2xx as success and 4xx (including 429) & 5xx as retryable.
-  - `M3.5`: Append-only attempt logging (`webhook_event_attempts`) with response payload truncation (≤1 KB).
+  - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$. Treat 2xx as success; retry 408, 409, 429, 5xx, and transport/timeouts until `maxAttempts`; immediately fail other 4xx per ADR-0004.
+  - `M3.5`: Append-only attempt logging (`webhook_event_attempts`) for every dispatch result, with response payload truncation (≤1 KB); record terminal failures and mark retry exhaustion at `maxAttempts`.
 - **Mapped WBS Items:** WBS 4.0 (4.1, 4.2), WBS 5.0 (5.1, 5.2, 5.3, 5.4).
 - **Exit Criteria (DoD):** Guaranteed retry exhaustion at `maxAttempts` (5); zero orphaned records on ungraceful worker termination.
 

@@ -3,10 +3,11 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, and 4.1: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, 4.1, 5.2, 5.3, and 5.4: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
   atomic claim, authentication, ingestion input validation and SSRF URL
-  validation, atomic idempotent ingestion, and poll-cycle coordination.
+  validation, atomic idempotent ingestion, poll-cycle coordination, outbound
+  HTTP dispatch/backoff, result classification, and attempt recording.
   PostgreSQL and MySQL are deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
@@ -66,6 +67,13 @@ cycles resume. Use real SQLite integration tests for recovery/claim ordering
 and a bounded local idle benchmark to measure scheduler CPU overhead against
 the 10% target. OS signal registration and in-flight dispatch draining are
 excluded because they belong to WBS 4.2.
+For Task 5.4, verify 2xx success, permanent 4xx classification (including
+unlisted 4xx defaults), retryable 408/409/429 and 5xx/network failures, retry
+exhaustion at `maxAttempts`, lease-owner enforcement, and atomic attempt/state
+updates against a real SQLite adapter. Verify attempt ordinals use the claim's
+reserved `attemptCount`, error descriptions do not expose transport internals,
+and persisted response snippets stay within 1,024 UTF-8 bytes. Worker failures
+are reported through the scheduler callback seam.
 
 ## Strategy and Layers (Unit / Integration / E2E)
 
@@ -451,3 +459,28 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Go/No-Go:** Go for WBS 3.3. Authentication, validation, fallback
   destination handling, and atomic idempotent persistence are verified; no
   HTTP transport or dispatch behavior is claimed.
+
+### Task 5.4 Results
+
+- **Environment:** Node.js v24; Vitest 3.2.7; SQLite via better-sqlite3 for
+  adapter integration tests.
+- **TDD red check:** The classifier and worker test files initially failed to
+  load their missing production modules, as expected. The new classification
+  cases then passed, followed by worker tests and real SQLite adapter tests.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (17 files, 359
+  tests). This includes HTTP classification boundaries, dispatch-to-attempt
+  mapping, worker error reporting, UTF-8 snippet byte limits, lease-loss
+  handling, and SQLite atomic attempt/state transition coverage.
+- **Coverage:** 97.76% overall lines/statements, 98.86% functions, and 94.47%
+  branches. The classifier measured 100% in all dimensions; the delivery worker
+  measured 100% lines/statements/functions and 97.14% branches. Both new
+  modules have enforced 95% thresholds.
+- **Lint/format/diff:** ESLint passed with zero warnings; Prettier check passed
+  on changed files; `git diff --check` passed.
+- **Type-check/build:** `pnpm build` passed after `tsconfig.json` was updated to
+  compile application sources and exclude test files. Vitest still discovers
+  and runs the test files independently; the production build does not
+  type-check test files.
+- **Open bugs:** None found in the WBS 5.4 implementation. Full-repository
+  production-source build validation passed.
+- **Go/No-Go:** Go for WBS 5.4 behavior, coverage, lint, and production build.

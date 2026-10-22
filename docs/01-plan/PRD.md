@@ -155,7 +155,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - **FR-3 (MUST):** The database-adapter claim operation MUST atomically select due events (`status IN ('pending','retry') AND (next_retry_at IS NULL OR next_retry_at <= now)`), mark them `processing`, and return them — such that no two workers can claim the same event.
 - **FR-4 (MUST):** The v1 SQLite adapter must use an atomic conditional `UPDATE` targeting eligible rows, setting `status = 'processing'`, `locked_at`, and `locked_by` in the same operation. Other SQL dialects and their claim implementations are deferred to v2.0.
 - **FR-5 (MUST):** Claimed events MUST be recoverable: if a worker crashes mid-delivery, the SQLite adapter MUST atomically return `processing` events whose `locked_at` is strictly older than `now - max(timeoutLimitMs + 30000 ms, 90000 ms)` to `retry`, clear `locked_at`/`locked_by`, and set `next_retry_at` to `now + 10000 ms`. The caller supplies one validated UTC `now`; the adapter validates `timeoutLimitMs`. A scheduler poll loop invokes recovery once per cycle when implemented under WBS 4.1.
-- **FR-6 (MUST):** On delivery success → `status='delivered'`; on failure with attempts < `maxAttempts` → `status='retry'` and `next_retry_at` set by backoff; on failure with attempts ≥ `maxAttempts` → `status='failed'`; final attempt row `outcome='exhausted'`.
+- **FR-6 (MUST):** On delivery success → `status='delivered'`; on retryable failure with attempts < `maxAttempts` → `status='retry'` and `next_retry_at` set by backoff; on non-retryable failure or retryable failure with attempts ≥ `maxAttempts` → `status='failed'` with the final attempt row `outcome='exhausted'`.
 
 #### 5.6 API Key Authentication & Access Control (Ingestion) — Constant-Time Comparison
 
@@ -177,7 +177,9 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - **FR-14 (MUST):** Delay before retry _n_ (n = 1-based attempt just failed): `delay = min(base * 2^(n-1), capMs)` with **full jitter**: `next_retry_at = now + random(0, delay)`.
 - **FR-15 (MUST):** Defaults: `base = 1000 ms`, `capMs = 60 000 ms` (configurable; caps respect `timeoutLimitMs` independence).
 - **FR-16 (MUST):** Backoff stops at `maxAttempts`; no event is retried after terminal `failed`/`delivered`.
-- **FR-17 (SHOULD):** Only 2xx responses count as success; 4xx other than 429 are retried as well (retryable) — non-retryable classification (e.g., 410/400 permanent-fail policy) is a design-checkpoint decision recorded in the SDD.
+- **FR-17 (MUST):** Only 2xx responses count as success. **4xx errors are classified as follows:**
+  - **Non-retryable (terminal fail):** 400 (Bad Request), 401 (Unauthorized), 403 (Forbidden), 404 (Not Found), 410 (Gone), 422 (Unprocessable Entity), and other unlisted 4xx responses. These errors are immediately recorded as `failed` with an audit row whose `outcome` is `exhausted`; no further delivery retries are scheduled.
+  - **Retryable (with backoff + jitter):** 429 (Too Many Requests), 408 (Request Timeout), 409 (Conflict), 5xx responses, and transport/timeouts. These errors are retried with exponential backoff and full jitter until `maxAttempts` is exhausted; terminal failures use `outcome='exhausted'`.
 
 ### 5.9 Ingestion API & Observability
 
@@ -248,6 +250,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 - HMAC SHA-256 request signing with timestamp on all outbound deliveries.
 - Attempt audit logging (`webhook_event_attempts`) and status/history query endpoints.
 - Structured logging, Vitest unit + integration suites (including SQLite concurrency and security tests), README/docs updates.
+- **Concurrency Test:** Automated harness simulating ≥1,000 concurrent submissions with ≥100 parallel SQLite workers; exactly 1 job per tenant-key pair and 0 concurrent double-claims under at-least-once semantics.
 
 ### 7.2 Out-of-Scope (v1)
 
@@ -281,6 +284,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 | AC13 | Vitest suite passes; coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).                                                                                                                                                                        | `pnpm test` coverage report (G8)                               |
 | AC14 | Ingestion schema accepts only the documented request fields and JSON payload; destination validation accepts absolute HTTPS URLs without credentials, rejects malformed URLs and any hostname/IP resolving to blocked IPv4/IPv6 ranges (loopback, private, link-local, unspecified, multicast, reserved, or metadata), and performs no dispatch for rejected destinations. | Schema and SSRF security tests (NFR-S6) |
 | AC15 | Given a configured SQLite database, when the adapter is opened and used, then WAL and `busy_timeout=5000` are active; events and attempts round-trip with JSON text and ISO-8601 timestamps; adapter operations preserve tenant scoping, idempotency, lease ownership, and atomic attempt/state transitions. | better-sqlite3 integration tests |
+| AC16 | Given a delivery response with a non-retryable 4xx status (including unlisted 4xx codes), then the event transitions directly from `processing` to `failed`, an attempt audit row is recorded with `outcome='exhausted'`, and no retry is scheduled. | Delivery worker unit/integration tests |
 
 ---
 
@@ -298,7 +302,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 - **A1:** Single process instance in v1 (embedded library); horizontal multi-node deployment is not required for correctness of v1 (atomic claim still guards against accidental multi-worker within/across processes).
 - **A2:** Events are delivered at-least-once; consumers are expected to deduplicate using the system-generated event `id` (exposed in both a delivery header, e.g. `x-webhook-event-id`, and the delivery body). Producer-side idempotency is separate and uses the client-supplied `idempotency_key` scoped by `client_id`.
-- **A3:** 2xx = success; everything else (including 429 and 4xx) is retryable until `maxAttempts` (subject to FR-17 decision at design checkpoint).
+- **A3:** 2xx responses are successful. Per FR-17 and accepted ADR-0004, 400, 401, 403, 404, 410, 422, and other unlisted 4xx responses are terminal failures; 408, 409, 429, 5xx responses, and transport/timeouts are retryable with full jitter until `maxAttempts`.
 - **A4:** Global config is single-scope (no per-tenant overrides) in v1.
 - **A5:** Clock skew within a single host is negligible; jitter/backoff use the host clock.
 - **A6:** Stored response snippets ≤ 1 KB and free of secrets by contract with consumers.

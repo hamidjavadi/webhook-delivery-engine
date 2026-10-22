@@ -33,7 +33,19 @@ export default defineConfig({
           lines: 95,
           statements: 95,
         },
+        'src/features/delivery/delivery.classify.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
         'src/features/delivery/delivery.dispatcher.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/features/delivery/delivery.worker.ts': {
           branches: 95,
           functions: 95,
           lines: 95,
