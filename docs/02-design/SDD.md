@@ -97,7 +97,7 @@ Ingestion path (synchronous, fast): a transport or embedded caller supplies the 
 | **Validator / SSRF Guard** (WBS 3.2)   | Strict Zod ingestion-body schema and absolute-HTTPS URL validation; resolves hostnames and rejects any unsafe IPv4/IPv6 answer before dispatch. Uses Node built-ins and fails closed on lookup errors or empty results. | Domain Types, Node DNS/net, Zod |
 | **Ingestion Handler** (WBS 3.3)        | Accepts parsed input and an auth result; rejects unauthenticated or invalid requests before persistence, uses validated configured `WEBHOOK_URL` only when destination is omitted, constructs a server-owned pending event, and calls the atomic upsert. Returns the existing system id on replay without overwriting the accepted event. It is not an HTTP route/server. | DatabaseAdapter, Auth, Validator, configuration |
 | **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
-| **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 400, 401, 403, 404, 410, 422 as terminal failed; retryable 408, 409, 429, 5xx, timeouts retryable until `maxAttempts`); writes attempt rows; applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
+| **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 4xx terminally fail with `outcome='exhausted'`; retryable 408, 409, 429, 5xx, and timeouts retry until `maxAttempts`); atomically writes attempt rows and applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
 | **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
 | **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
@@ -109,7 +109,7 @@ High cohesion / low coupling: every module depends only on the `DatabaseAdapter`
 
 - Canonical contracts live in `src/core/types.ts` and `src/core/ports.ts`; `EngineConfig` lives in `src/config/engine.config.ts`. The core has no runtime dependencies. All contract properties and nested JSON values are readonly. Domain timestamps use UTC ISO-8601 strings so they remain immutable and driver-agnostic.
 - `WebhookEvent` carries the system `id`, tenant-scoped `idempotencyKey` and `clientId`, SSRF-validated `destinationUrl`, JSON `payload`, JSON `metadata`, delivery `headers`, lifecycle `status`, `attemptCount`, retry/lease fields, and creation/update timestamps. Event-specific headers are persisted as data; engine-owned signing and event-identification headers cannot be overridden by them.
-- `AttemptRecord` is append-only and records `eventId`, its 1-based `attemptNumber`, `attemptedAt`, nullable HTTP `statusCode`, bounded nullable `responseSnippet`, nullable error description, nullable `latencyMs`, and an `outcome` of `success`, `retry_scheduled`, or `exhausted`.
+- `AttemptRecord` is append-only and records `eventId`, its 1-based `attemptNumber`, `attemptedAt`, nullable HTTP `statusCode`, bounded nullable `responseSnippet`, nullable error description, nullable `latencyMs`, and an `outcome` of `success`, `retry_scheduled`, or `exhausted`. `exhausted` marks a terminal unsuccessful attempt, including an immediate permanent failure from a non-retryable response as well as retry exhaustion at `maxAttempts`.
 - `DatabaseAdapter` owns atomic idempotent upsert, due-row claim, stale-lease recovery, worker-owned lease release, tenant-scoped event reads/listing, attempt-history reads, and atomic attempt-record-plus-event-transition operations. Claiming transitions eligible `pending`/`retry` rows to `processing`, sets lease metadata, and increments `attemptCount`. Appending an attempt and applying its resulting state transition are one database transaction; a transition succeeds only for the worker holding the lease. Read methods must scope by `clientId`.
 - `EngineConfig` is readonly and groups worker concurrency, polling/batch limits, request timeout, and retry policy (`maxAttempts`, `baseDelayMs`, `maxDelayMs`). SDD defaults are timeout 10,000 ms, max attempts 5, base delay 1,000 ms, max delay 60,000 ms, and batch size 10. Concurrency and timing values must be positive safe integers; retry maximum must not be less than its base.
 
@@ -149,7 +149,7 @@ Indexes: PK on `id`; `UNIQUE(client_id, idempotency_key)` (idempotency anchor); 
 | `response_snippet` | TEXT      | Bounded ≤ 1 KB, contractually secret-free (A6).           |
 | `error`            | TEXT      | Error text (e.g., `timeout`, `ECONNREFUSED`).             |
 | `latency_ms`       | INTEGER   | Round-trip duration.                                      |
-| `outcome`          | TEXT enum | `success` \| `retry_scheduled` \| `exhausted`.            |
+| `outcome`          | TEXT enum | `success` \| `retry_scheduled` \| `exhausted`; `exhausted` means terminal unsuccessful delivery, including permanent 4xx failure or reaching `maxAttempts`. |
 
 Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attempt_number)`, enforcing one append-only record per event attempt ordinal.
 
@@ -308,6 +308,8 @@ sequenceDiagram
     Work->>DB: Write attempt row (status_code, latency, outcome)
     alt 2xx
         Work->>DB: status = delivered
+    else non-retryable 4xx
+        Work->>DB: status = failed, outcome = exhausted
     else failure, attempts < maxAttempts
         Work->>DB: status = retry, next_retry_at = now + random(0, min(1000*2^(n-1), 60000))
     else attempts >= maxAttempts
@@ -343,6 +345,7 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 | Failure                            | Behavior                                                                                                          | Requirement  |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------ |
+| Non-retryable 4xx                  | Attempt recorded with `outcome='exhausted'`; event becomes terminal `failed`, with no retry scheduled               | FR-17, ADR-0004 |
 | Consumer 5xx / network error / 429 | Attempt recorded (`error` or `status_code`), backoff with full jitter applied, `retry` scheduled                  | FR-6, FR-14  |
 | Delivery exceeds `timeoutLimitMs`  | Request aborted, attempt row with `error: timeout`, retry scheduled                                               | AC6          |
 | Worker crash mid-dispatch          | Stale lease reclaimed after threshold; delivery may repeat (at-least-once, C4)                                    | FR-5, AC9    |
@@ -392,7 +395,7 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 | Claim primitive        | SQLite conditional `UPDATE ... WHERE status IN ('pending','retry')` returning affected rows | Row-locking designs are unnecessary for v1's SQLite-only scope and require a separate dialect decision in v2.0                         |
 | Delivery semantics     | At-least-once with consumer deduplication by system `id`                                     | Exactly-once — impossible across crash windows without two-phase consumer acknowledgement; out of scope (C4)           |
 | Retry policy           | Bounded exponential backoff with **full jitter**                                             | Fixed-interval retries — thundering-herd risk on struggling endpoints (R5)                                             |
-| Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422) transition immediately to terminal `failed`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
+| Non-2xx classification      | HTTP 2xx success; non-retryable client errors (400, 401, 403, 404, 410, 422, other 4xx by default) transition immediately to terminal `failed` with `outcome='exhausted'`; retryable errors (408, 409, 429, 5xx, timeouts) retried with jittered backoff until `maxAttempts`, then fail with `outcome='exhausted'` (ADR-0004) | All non-2xx retryable indiscriminately — rejected per ADR-0004 to prevent worker queue starvation and DoS on dead/misconfigured endpoints (FR-17/A3) |
 | Stale-lease recovery   | Scheduler invokes the SQLite adapter's atomic stale-lease sweep each poll cycle (WBS 4.1); threshold is `max(timeoutLimitMs + 30000 ms, 90000 ms)` and retry delay is 10 seconds (ADR-0002) | Heartbeat-only leases — extra write amplification; 2.7 adapter implementation is deliberately separate from the WBS 4.1 poll loop |
 | Id generation          | Server-side UUIDv4 (non-enumerable)                                                          | Client-supplied ids — trust and enumeration risk; sequence ids — enumerable, BOLA-prone                                |
 | Destination validation | ADR-0005: Node built-ins, HTTPS-only strict URL parsing, all-address DNS validation, and fail-closed handling; dispatcher must later pin/revalidate | URL syntax-only validation misses hostname SSRF; a new IP library does not solve the future connection-pinning boundary |
@@ -430,6 +433,8 @@ src/
 │   │   ├── delivery.classify.ts       # Outcome classification (ADR-0004, FR-17)
 │   │   ├── delivery.backoff.ts        # Full-jitter exponential backoff math
 │   │   ├── delivery.hmac.ts           # HMAC-SHA256 signing (FR-11–FR-13)
+│   │   ├── delivery.worker.test.ts    # Worker attempt persistence and lifecycle transitions
+│   │   ├── delivery.classify.test.ts  # HTTP result policy and retry exhaustion
 │   │   └── delivery.test.ts           # Retry lifecycle, signatures (AC4–AC8)
 │   └── query/                 # WBS 6.x — tenant-scoped status & attempt reads
 │       ├── query.routes.ts            # GET /webhooks, /:id, /:id/attempts

@@ -57,7 +57,7 @@ We adopt **Option 2**: A rigorous classification of HTTP 4xx status codes into *
 
 When an outbound delivery results in a **Non-Retryable 4xx** status code:
 
-1. The attempt row is recorded in `webhook_event_attempts` with `status_code` and failure reason.
+1. The attempt row is recorded in `webhook_event_attempts` with `status_code`, failure reason, and `outcome='exhausted'`. The existing outcome enum is retained; `exhausted` denotes any terminal unsuccessful attempt, whether it failed permanently or reached `maxAttempts`.
 2. The parent event status immediately transitions from `processing` to `failed` (`attempts` counter incremented, `next_retry_at` set to `NULL`).
 3. No further delivery retries are scheduled, fulfilling FR-17.
 
@@ -77,7 +77,7 @@ When an outbound delivery results in a **Non-Retryable 4xx** status code:
 ## Migration/Review Plan and References
 
 - **Implementation:** Integrated into the Outbound Delivery Worker module (`src/workers/delivery.ts`) and database state machine logic.
-- **Testing:** Unit and integration tests added to verify that 400, 401, 403, 404, 410, and 422 immediately transition events to `failed`, while 429 and 5xx schedule retries with full jitter.
+- **Testing:** Unit and integration tests added to verify that 400, 401, 403, 404, 410, 422, and other unlisted 4xx immediately transition events to `failed` with `outcome='exhausted'`, while 429 and 5xx schedule retries with full jitter.
 - **References:**
   - [`PRD.md`](../../01-plan/PRD.md) (§4 Functional Requirements FR-17)
   - [`SDD.md`](../SDD.md) (§5.5 Outbound Delivery Contract, §7.2 Failure Modes, §10 Options and Trade-offs)

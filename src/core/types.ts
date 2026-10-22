@@ -24,7 +24,9 @@ export type Timestamp = string;
 export type EventStatus = 'pending' | 'processing' | 'delivered' | 'retry' | 'failed';
 
 /**
- * Terminal or retry scheduling result recorded for a delivery attempt.
+ * Result recorded for a delivery attempt. `exhausted` means the event reached
+ * a terminal unsuccessful state, either through a permanent response or by
+ * reaching the configured retry limit.
  */
 export type AttemptOutcome = 'success' | 'retry_scheduled' | 'exhausted';
 

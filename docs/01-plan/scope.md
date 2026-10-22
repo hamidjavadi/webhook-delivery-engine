@@ -19,7 +19,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 
 - **Dual-Table Schema:**
   - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, authenticated `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
-  - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`).
+  - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`). `exhausted` denotes a terminal unsuccessful attempt, whether caused by a non-retryable response or reaching `maxAttempts`.
 - **Database Adapter:** Implement the canonical `DatabaseAdapter` contract using `better-sqlite3`; enable WAL and `busy_timeout=5000`, parameterize all SQL, and preserve idempotency, tenant-scoped reads, worker lease ownership, and atomic attempt/state transitions. PostgreSQL and MySQL are deferred to v2.0.
 - **Atomic Claim Mechanism:**
   - A single SQLite conditional `UPDATE ... RETURNING` statement per batch, selecting only due rows and ensuring no concurrent double-claim across worker processes per ADR-0001; the adapter contract remains driver-neutral.
@@ -37,7 +37,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
   - Strictly at-least-once delivery semantics; consumers deduplicate using the system-generated event `id` supplied in delivery headers and body.
   - Bounded exponential backoff with full jitter formula: `next_retry_at = now + random(0, min(base * 2^(attempt - 1), capMs))`.
   - Configurable parameters: base delay (default: 1,000 ms), maximum backoff cap (default: 60,000 ms), per-delivery timeout limit (`timeoutLimitMs`, default: 10,000 ms), and retry ceiling (`maxAttempts`, default: 5 attempts).
-  - Status classification: `2xx` treated as successful; non-retryable `4xx` (400, 401, 403, 404, 410, 422, and other default 4xx per ADR-0004) immediately transition to terminal `failed` without further retries; retryable `4xx` (408, 409, 429) and `5xx` treated as retryable until `maxAttempts`; terminal `failed` state with attempt outcome `exhausted` once retry ceiling is reached.
+  - Status classification: `2xx` treated as successful; non-retryable `4xx` (400, 401, 403, 404, 410, 422, and other default 4xx per ADR-0004) immediately transition to terminal `failed` without further retries and record outcome `exhausted`; retryable `4xx` (408, 409, 429), `5xx`, and timeouts are retried until `maxAttempts`, after which the event transitions to terminal `failed` with outcome `exhausted`.
 
 ### 2.3 Security & Protection
 

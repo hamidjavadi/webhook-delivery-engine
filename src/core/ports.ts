@@ -94,7 +94,7 @@ export type RecordAttemptAndTransitionInput =
       readonly attempt: AttemptRecord & { readonly outcome: 'exhausted' };
       /** Worker that must own the event lease. */
       readonly workerId: string;
-      /** Exhausted attempts transition the event to failed. */
+      /** Terminal unsuccessful attempts transition the event to failed. */
       readonly nextStatus: 'failed';
       /** Terminal failure does not schedule a retry. */
       readonly nextRetryAt: null;
