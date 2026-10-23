@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import type { RetryPolicy } from '../../config/engine.config.js';
 import type { DatabaseAdapter, RecordAttemptAndTransitionInput } from '../../core/ports.js';
-import type { AttemptRecord, Timestamp, WebhookEvent } from '../../core/types.js';
+import type { AttemptRecord, EventStatus, Timestamp, WebhookEvent } from '../../core/types.js';
 import { calculateNextRetryAt } from './delivery.backoff.js';
 import { classifyDeliveryResult } from './delivery.classify.js';
 import { dispatchEvent, type DispatchInput } from './delivery.dispatcher.js';
@@ -23,6 +23,17 @@ export interface DeliveryProcessorOptions {
   readonly now?: () => Timestamp;
   /** Identifier source for the append-only attempt row. */
   readonly createId?: () => string;
+  /** Called after persistence returns the attempt transition result. */
+  readonly onAttemptCompleted?: (event: WebhookEvent, result: DeliveryAttemptCompletion) => void;
+}
+
+/** Safe, payload-free summary of an attempt and its persistence result. */
+export interface DeliveryAttemptCompletion {
+  readonly outcome: AttemptRecord['outcome'];
+  readonly nextStatus: Extract<EventStatus, 'delivered' | 'retry' | 'failed'>;
+  readonly statusCode: number | null;
+  readonly latencyMs: number;
+  readonly persisted: boolean;
 }
 
 /** Processing failure callback for the scheduler-compatible worker adapter. */
@@ -101,7 +112,15 @@ export async function processDeliveryAttempt(
     nextRetryAt,
     updatedAt,
   );
-  return options.adapter.recordAttemptAndTransition(transition);
+  const persisted = await options.adapter.recordAttemptAndTransition(transition);
+  options.onAttemptCompleted?.(event, {
+    outcome: classification.outcome,
+    nextStatus: transition.nextStatus,
+    statusCode: result.statusCode,
+    latencyMs: result.latencyMs,
+    persisted,
+  });
+  return persisted;
 }
 
 /**

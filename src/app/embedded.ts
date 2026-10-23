@@ -6,6 +6,7 @@ import type { IngestionRequest } from '../features/ingestion/ingestion.schema.js
 import { handleIngestion } from '../features/ingestion/ingestion.handler.js';
 import { ClaimScheduler } from '../features/scheduler/scheduler.js';
 import { createApiKeyAuthenticator } from '../security/auth.js';
+import { createStructuredLogger, resolveLogLevel, type LogLevel } from '../shared/logger.js';
 import { SqliteDatabaseAdapter } from '../storage/sqlite.adapter.js';
 import { GracefulShutdown } from './lifecycle.js';
 
@@ -23,7 +24,9 @@ export interface CreateWebhookEngineOptions {
   readonly defaultDestinationUrl: string;
   /** Required polling, timeout, and retry controls. */
   readonly config: EngineConfig;
-  /** Receives scheduler and delivery failures; the event is omitted for poll errors. */
+  /** Log threshold; defaults to LOG_LEVEL or info. */
+  readonly logLevel?: LogLevel;
+  /** Receives original scheduler and delivery failures; poll errors omit the event. */
   readonly onError?: (error: unknown, event?: WebhookEvent) => void;
 }
 
@@ -52,6 +55,9 @@ export interface WebhookEngine {
  */
 export function createWebhookEngine(options: CreateWebhookEngineOptions): WebhookEngine {
   validateOptions(options);
+  const logger = createStructuredLogger({
+    level: resolveLogLevel(options.logLevel, process.env.LOG_LEVEL),
+  });
   const authenticate = createApiKeyAuthenticator({
     apiKey: options.apiKey,
     clientId: options.clientId,
@@ -91,6 +97,15 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
             retry: options.config.retry,
             onError: (error, event) => reportError(error, event),
             onDispatchStarted: (event, work) => {
+              logger.info(
+                {
+                  event: 'delivery.dispatch.started',
+                  eventId: event.id,
+                  clientId: event.clientId,
+                  attemptNumber: event.attemptCount,
+                },
+                'delivery dispatch started',
+              );
               lifecycle?.trackDispatch(event.id, work);
               const finish = () => {
                 activeWorkers -= 1;
@@ -98,23 +113,60 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
               };
               void work.then(finish, finish);
             },
+            onAttemptCompleted: (event, result) => {
+              logger.info(
+                {
+                  event: 'delivery.attempt.completed',
+                  eventId: event.id,
+                  clientId: event.clientId,
+                  attemptNumber: event.attemptCount,
+                  outcome: result.outcome,
+                  nextStatus: result.nextStatus,
+                  statusCode: result.statusCode,
+                  latencyMs: result.latencyMs,
+                  persisted: result.persisted,
+                },
+                'delivery attempt completed',
+              );
+            },
           });
           scheduler = new ClaimScheduler(
             db,
             options.config,
             (event) => {
               lifecycle?.trackClaimed(event);
+              logger.info(
+                {
+                  event: 'delivery.claimed',
+                  eventId: event.id,
+                  clientId: event.clientId,
+                  attemptNumber: event.attemptCount,
+                },
+                'delivery event claimed',
+              );
               if (!acceptingDispatches) return;
               queuedClaims.push(event);
               startQueuedClaims();
             },
             (error) => reportError(error),
+            (recoveredCount) => {
+              if (recoveredCount === 0) return;
+              logger.warn(
+                { event: 'scheduler.stale_leases_recovered', recoveredCount },
+                'stale delivery leases recovered',
+              );
+            },
           );
           lifecycle = new GracefulShutdown(scheduler, db);
           acceptingDispatches = true;
           scheduler.start();
           state = 'running';
+          logger.info({ event: 'engine.started', clientId: options.clientId }, 'engine started');
         } catch (error) {
+          logger.error(
+            { event: 'engine.start.failed', errorType: errorType(error) },
+            'engine startup failed',
+          );
           adapter?.close();
           adapter = null;
           state = 'failed';
@@ -133,6 +185,7 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
       if (state === 'starting') await startPromise;
       state = 'stopping';
       acceptingDispatches = false;
+      logger.info({ event: 'engine.stopping', clientId: options.clientId }, 'engine stopping');
       stopPromise = (async () => {
         try {
           await lifecycle?.shutdown();
@@ -140,18 +193,31 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
           adapter?.close();
           adapter = null;
           state = 'stopped';
+          logger.info({ event: 'engine.stopped', clientId: options.clientId }, 'engine stopped');
         }
       })();
       return stopPromise;
     },
     async enqueue(input) {
       const db = requireRunning();
-      return handleIngestion({
+      const result = await handleIngestion({
         authentication: authenticate(options.apiKey),
         body: input,
         defaultDestinationUrl: options.defaultDestinationUrl,
         database: db,
       });
+      if (result.statusCode === 202) {
+        logger.info(
+          {
+            event: 'ingestion.accepted',
+            eventId: result.body.id,
+            clientId: options.clientId,
+            idempotentReplay: result.body.idempotent_replay,
+          },
+          'webhook event accepted',
+        );
+      }
+      return result;
     },
     async getEvent(identifier) {
       const db = requireRunning();
@@ -184,16 +250,25 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
   }
 
   function reportError(error: unknown, event?: WebhookEvent): void {
+    logger.error(
+      {
+        event: event === undefined ? 'scheduler.poll.failed' : 'delivery.processing.failed',
+        ...(event === undefined ? {} : { eventId: event.id, clientId: event.clientId }),
+        errorType: errorType(error),
+      },
+      event === undefined ? 'scheduler poll failed' : 'delivery processing failed',
+    );
     if (options.onError !== undefined) {
       options.onError(error, event);
-      return;
     }
-    const eventLabel = event === undefined ? '' : ` for event ${event.id}`;
-    process.emitWarning(
-      `Webhook engine processing error${eventLabel}: ${error instanceof Error ? error.message : String(error)}`,
-      { code: 'WEBHOOK_ENGINE_ERROR' },
-    );
   }
+}
+
+function errorType(error: unknown): string {
+  if (error instanceof TypeError) return 'TypeError';
+  if (error instanceof RangeError) return 'RangeError';
+  if (error instanceof SyntaxError) return 'SyntaxError';
+  return error instanceof Error ? 'Error' : typeof error;
 }
 
 function validateOptions(options: CreateWebhookEngineOptions): void {

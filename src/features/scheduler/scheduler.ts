@@ -24,6 +24,9 @@ export type OnClaimCallback = (event: WebhookEvent) => void;
  */
 export type OnPollErrorCallback = (error: unknown) => void;
 
+/** Callback invoked after stale-lease recovery completes. */
+export type OnRecoveryCallback = (recoveredCount: number) => void;
+
 /**
  * Polling loop that coordinates stale-lease recovery and due-event claiming.
  *
@@ -38,10 +41,11 @@ export type OnPollErrorCallback = (error: unknown) => void;
  * 4. Sleeps for `pollIntervalMs` before the next cycle when the batch is
  *    empty; starts the next cycle immediately when work was found.
  *
- * Transient errors thrown by either adapter operation are caught and logged
- * (as a console.error) so the loop continues rather than crashing. The
- * scheduler does not register OS signal listeners (SIGINT/SIGTERM) — that
- * responsibility belongs to the graceful-shutdown module (WBS 4.2).
+ * Transient errors thrown by either adapter operation are passed to the
+ * optional error callback so the loop continues rather than crashing. The
+ * scheduler does not own logging or register OS signal listeners (SIGINT/
+ * SIGTERM); those responsibilities belong to the composition root and
+ * graceful-shutdown module (WBS 4.2).
  */
 export class ClaimScheduler {
   /** Stable id stamped on every lease this scheduler instance claims. */
@@ -74,6 +78,7 @@ export class ClaimScheduler {
     private readonly config: EngineConfig,
     private readonly onClaim: OnClaimCallback,
     private readonly onError?: OnPollErrorCallback,
+    private readonly onRecovery?: OnRecoveryCallback,
   ) {
     this.workerId = randomUUID();
   }
@@ -131,10 +136,11 @@ export class ClaimScheduler {
       try {
         const now = new Date().toISOString();
 
-        await this.adapter.recoverStaleLeases({
+        const recoveredCount = await this.adapter.recoverStaleLeases({
           now,
           timeoutLimitMs: this.config.timeoutLimitMs,
         });
+        this.onRecovery?.(recoveredCount);
 
         const claimed = await this.adapter.claimDueEvents({
           workerId: this.workerId,
