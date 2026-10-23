@@ -209,14 +209,17 @@ describe('handleIngestion with SQLite', () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  it('stores one immutable event for 1,000 concurrent duplicate submissions', async () => {
+  it('stores one event per tenant-key pair for 1,000 concurrent submissions', async () => {
     const secondAdapter = await SqliteDatabaseAdapter.open(join(directory, 'events.db'));
     const resultSets = await Promise.all(
       Array.from({ length: 1000 }, (_, index) =>
         handleIngestion({
-          authentication,
+          authentication: {
+            authenticated: true,
+            clientId: `client-${(index % 100) % 10}`,
+          },
           body: {
-            idempotency_key: 'concurrent-key',
+            idempotency_key: `concurrent-key-${Math.floor((index % 100) / 10)}`,
             payload: { submission: index },
             destination_url: 'https://93.184.216.34/hooks',
           },
@@ -234,13 +237,30 @@ describe('handleIngestion with SQLite', () => {
     const replayCount = acceptedResults.filter(
       (result) => result.statusCode === 202 && result.body.idempotent_replay,
     ).length;
-    const storedEvent = await adapter.findEventByIdempotencyKey('client-1', 'concurrent-key');
-
     expect(acceptedResults).toHaveLength(1000);
-    expect(ids.size).toBe(1);
-    expect(replayCount).toBe(999);
-    expect(storedEvent).not.toBeNull();
-    expect(storedEvent?.payload).toEqual({ submission: 0 });
+    expect(ids.size).toBe(100);
+    expect(replayCount).toBe(900);
+    for (let tenantIndex = 0; tenantIndex < 10; tenantIndex += 1) {
+      const storedEvents = await adapter.listEvents({
+        clientId: `client-${tenantIndex}`,
+        limit: 100,
+      });
+      expect(storedEvents.items).toHaveLength(10);
+      expect(new Set(storedEvents.items.map(({ idempotencyKey }) => idempotencyKey)).size).toBe(10);
+    }
+    for (let pairIndex = 0; pairIndex < 100; pairIndex += 1) {
+      const pairIds = new Set(
+        resultSets.flatMap((result, index) =>
+          index % 100 === pairIndex && result.statusCode === 202 ? [result.body.id] : [],
+        ),
+      );
+      const event = await adapter.findEventByIdempotencyKey(
+        `client-${pairIndex % 10}`,
+        `concurrent-key-${Math.floor(pairIndex / 10)}`,
+      );
+      expect(pairIds.size).toBe(1);
+      expect(event).not.toBeNull();
+    }
   });
 
   it('keeps idempotency keys isolated by authenticated tenant', async () => {
