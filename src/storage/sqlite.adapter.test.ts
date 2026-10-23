@@ -96,6 +96,7 @@ function createExhaustedAttempt(): AttemptRecord & { readonly outcome: 'exhauste
 async function claimFromSeparateProcess(
   databasePath: string,
   workerId: string,
+  limit: number,
 ): Promise<readonly string[]> {
   const program = `
     const { SqliteDatabaseAdapter } = await import(process.argv[1]);
@@ -123,7 +124,7 @@ async function claimFromSeparateProcess(
       databasePath,
       workerId,
       timestamp,
-      '6',
+      String(limit),
     ],
     { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -448,9 +449,11 @@ describe('SqliteDatabaseAdapter', () => {
     secondAdapter.close();
   });
 
-  it('does not double-claim due events across independent worker processes', async () => {
-    const eventCount = 24;
-    const workerIds = ['process-1', 'process-2', 'process-3', 'process-4'];
+  it('does not double-claim 1,000 events across 100 independent worker processes', async () => {
+    const eventCount = 1000;
+    const workerCount = 100;
+    const claimLimit = eventCount / workerCount;
+    const workerIds = Array.from({ length: workerCount }, (_, index) => `process-${index}`);
     for (let index = 0; index < eventCount; index += 1) {
       await adapter.upsertEvent(
         createEvent({
@@ -461,17 +464,16 @@ describe('SqliteDatabaseAdapter', () => {
     }
 
     const batches = await Promise.all(
-      workerIds.map((workerId) => claimFromSeparateProcess(databasePath, workerId)),
+      workerIds.map((workerId) => claimFromSeparateProcess(databasePath, workerId, claimLimit)),
     );
     const claimedIds = batches.flat();
-    const events = await adapter.listEvents({ clientId: 'client-1', limit: 100 });
+    const events = await adapter.listEvents({ clientId: 'client-1', limit: eventCount });
 
-    expect(batches.map((batch) => batch.length)).toEqual([6, 6, 6, 6]);
     expect(new Set(claimedIds).size).toBe(eventCount);
     expect(claimedIds).toHaveLength(eventCount);
     for (const [index, workerId] of workerIds.entries()) {
       const claimedByWorker = batches[index];
-      expect(claimedByWorker).toHaveLength(6);
+      expect(claimedByWorker?.length).toBeLessThanOrEqual(claimLimit);
       for (const eventId of claimedByWorker ?? []) {
         expect(events.items).toEqual(
           expect.arrayContaining([
@@ -485,7 +487,7 @@ describe('SqliteDatabaseAdapter', () => {
         );
       }
     }
-  });
+  }, 60_000);
 
   it('recovers expired leases and releases only the owning worker lease', async () => {
     await adapter.upsertEvent(

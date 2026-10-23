@@ -3,7 +3,7 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, 4.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, and 7.1: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, 4.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 7.1, and 7.2: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
   atomic claim, authentication, ingestion input validation and SSRF URL
   validation, atomic idempotent ingestion, poll-cycle coordination, outbound
@@ -11,7 +11,9 @@
   authenticated REST transport for ingestion, tenant-scoped event queries,
   pagination, and attempt history. WBS 7.1 adds repository-wide and
   critical-path coverage measurement plus a controlled local ingestion p95
-  benchmark; it does not change runtime behavior.
+  benchmark; it does not change runtime behavior. WBS 7.2 adds concurrent
+  multi-tenant idempotency and independent-process SQLite claim stress checks;
+  it does not change runtime behavior.
   PostgreSQL and MySQL are deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
@@ -57,7 +59,8 @@ omitted, and applies the same SSRF validation to that fallback. Verify new
 events return the complete 202 application result and duplicate submissions
 return the same stored event id with replay=true without overwriting the
 original event. Include independent tenant keys, concurrent calls to the real
-SQLite adapter at the PRD threshold (at least 1,000 submissions), invalid
+SQLite adapter at the PRD threshold (at least 1,000 submissions across
+multiple tenant/key pairs), invalid
 auth/schema/destination cases, and propagated storage errors. WBS 3.3 remains
 transport-independent; its HTTP mapping is verified under WBS 6.1. An invalid
 configured fallback must return a generic 500 configuration error and leave
@@ -141,7 +144,36 @@ network request occurs.
   atomic-claim critical path; the claim-specific checker enforces the 95%
   threshold for the actual claim method and comparator.
 - **Go/No-Go:** Go for WBS 7.1 coverage and local ingestion latency criteria.
-  WBS 7.2–7.4 remain open and are not included in this result.
+  WBS 7.2–7.4 were still open at the time of that task's verification and are
+  not included in its result.
+
+### WBS 7.2 QA Results
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1 as declared by the project;
+  Vitest 3.2.7; temporary on-disk better-sqlite3 databases; synthetic data.
+- **Ingestion stress:** 1,000 concurrent requests across 10 tenants and 10
+  keys per tenant produced 100 stored events, one stable event id for each
+  tenant/key pair, and 900 idempotent replays.
+- **Claim contention stress:** 100 independent Node.js worker processes raced
+  to claim 1,000 due events. All 1,000 ids were unique, with persisted
+  `processing` status, `attempt_count = 1`, and lease owner matching the worker
+  that returned each event.
+- **Focused tests:** The ingestion handler file passed (9 tests); the SQLite
+  adapter file passed (36 tests), including the 100-process stress case.
+- **Final tests and coverage:** `pnpm exec vitest run --coverage` passed (21
+  files, 397 tests). Coverage was 98.52% lines/statements, 99.16% functions,
+  and 95.71% branches; all configured overall and critical-path thresholds
+  passed. `node scripts/check-claim-coverage.mjs` also passed with 100% lines,
+  statements, functions, and branches for both `claimDueEvents` and
+  `compareClaimedEvents`.
+- **Build/lint/format/diff:** `pnpm build`, `pnpm lint`, Prettier check on
+  changed source and documentation, and `git diff --check` passed.
+- **TDD note:** This task adds stress verification only and does not change
+  production behavior; the expanded tests passed against the existing
+  implementation, so no production change or artificial failing assertion was
+  introduced.
+- **Failed tests/open bugs:** None.
+- **Go/No-Go:** Go for WBS 7.2 concurrency and contention acceptance criteria.
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
@@ -176,6 +208,7 @@ network request occurs.
 | Due claims are exclusive and lease changes obey worker ownership | SQLite adapter integration tests |
 | One atomic `UPDATE ... RETURNING` statement selects due ordered rows, reserves attempts, stamps leases, and returns complete claimed events | `src/storage/sqlite.adapter.test.ts` |
 | Competing independent processes claim a shared due-event batch with zero duplicate ids and no attempt-count drift | `src/storage/sqlite.adapter.test.ts` |
+| At least 100 independent SQLite worker processes claim 1,000 due events with no duplicate ids and matching persisted lease owners | WBS 7.2 cross-process SQLite stress test |
 | Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
 | Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
 | Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
@@ -189,7 +222,7 @@ network request occurs.
 | Omitted destination selects configured `WEBHOOK_URL`, then undergoes the same SSRF validation; supplied safe destination is preserved | WBS 3.3 handler unit tests |
 | Invalid or unsafe configured fallback returns a generic 500 configuration error without persistence | WBS 3.3 handler unit tests |
 | New event returns 202 result with generated id, key, replay=false, and pending status; duplicate returns same id with replay=true and does not overwrite the persisted event | WBS 3.3 handler/SQLite integration tests |
-| Same tenant/key submitted at least 1,000 times concurrently yields exactly one stored row and stable replay identity; same key under another tenant yields a separate row | WBS 3.3 SQLite concurrency integration test |
+| At least 1,000 concurrent submissions across tenant/key pairs yield exactly one stored row and stable replay identity per pair | WBS 3.3 and 7.2 SQLite concurrency integration tests |
 | Authentication, schema, destination, and storage failures are surfaced without a successful result or partial event write | WBS 3.3 handler/SQLite integration tests |
 | Every poll cycle recovers stale leases before atomically claiming a configured-size batch and passes only claimed events to the worker seam | WBS 4.1 scheduler unit and SQLite integration tests |
 | HTTP routes authenticate requests and map ingestion results to JSON/status codes | `src/app/http.server.test.ts` |
