@@ -26,6 +26,7 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noEmit": false,
+    "declaration": true,
     "outDir": "./dist",
     "rootDir": ".",
     "types": ["node", "vitest/globals"]

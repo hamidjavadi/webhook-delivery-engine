@@ -1,12 +1,36 @@
 {
   "name": "webhook-delivery-engine",
   "version": "1.0.0",
-  "private": true,
+  "description": "Embeddable Node.js webhook delivery engine with persistent retries.",
+  "license": "MIT",
+  "repository": "github:hamidjavadi/webhook-delivery-engine",
+  "keywords": [
+    "webhook",
+    "webhook-delivery",
+    "webhook-retry",
+    "delivery",
+    "event-delivery",
+    "retry",
+    "idempotency",
+    "queue",
+    "sqlite",
+    "nodejs",
+    "typescript"
+  ],
   "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src"
+  ],
   "scripts": {
-    "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/storage/migrations/sql', 'dist/src/storage/migrations/sql', { recursive: true });\"",
-    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",

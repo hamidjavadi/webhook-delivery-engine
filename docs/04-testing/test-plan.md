@@ -526,6 +526,40 @@ completion, append actual command results and the Go/No-Go decision here.
   repository still has no runnable composition entry point or integrated
   scheduler/dispatch lifecycle. WBS 6.1 was merged in PR #56 on October 23,
   2026; that endpoint task does not claim the complete service is deployable.
-- **Go/No-Go:** Go for WBS 6.1 endpoint behavior and tenant isolation. No-Go
-  for production deployment until the remaining runtime composition and
-  delivery lifecycle are integrated.
+- **Go/No-Go:** Go for WBS 6.1 endpoint behavior and tenant isolation. WBS 6.2
+  adds the public package and embedded runtime composition described below.
+
+### Task 6.2 Implementation Checkpoint
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; better-sqlite3
+  with temporary on-disk SQLite databases.
+- **TDD red check:** The package-root test first failed because `src/index.ts`
+  did not exist. The lifecycle drain test first failed because the shutdown
+  coordinator had no dispatch tracking API.
+- **Focused lifecycle validation:** The lifecycle suite confirms shutdown
+  waits for started work while releasing undispatched leases. The public engine
+  integration seeds two due rows with `workerCount: 1`, holds the started HTTP
+  request, calls `stop()`, then confirms one persisted delivery and one
+  released pending event without a second fetch.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (19 files, 383
+  tests). This includes package-root export, migration-before-query, tenant
+  binding, ingestion/query facade behavior, and the started-versus-queued
+  shutdown lifecycle.
+- **Coverage:** 98.15% overall lines/statements, 99.12% functions, and 94.95%
+  branches. `src/app/embedded.ts` has 100% lines/functions and 96.61% branches;
+  lifecycle coverage is 100% in all dimensions. All configured 95% critical
+  thresholds pass.
+- **Build/lint/format:** `pnpm build` passed, including TypeScript declaration
+  output and migration asset copy. `pnpm lint` and Prettier checks passed.
+- **Package validation:** `pnpm pack --pack-destination /tmp` produced a
+  tarball containing the ESM root, declarations, runtime modules, README,
+  license, and SQLite migration SQL. `npm install` installed the tarball and
+  runtime dependencies into a fresh temporary consumer app; a package-root
+  import then started SQLite migrations, queried events, and stopped cleanly.
+  pnpm 12 required native build-script approval for `better-sqlite3`, which is
+  documented for consumers. No registry publish was performed.
+- **Open work:** Changes are awaiting review before commit/PR. Public registry
+  publication remains a separate release action. The embedded package does not
+  provide a standalone server runner; the host owns listeners and signals.
+- **Go/No-Go:** Go for implementation review and PR preparation. Do not publish
+  until the release process is separately approved.

@@ -203,6 +203,39 @@ describe('GracefulShutdown', () => {
     expect(adapter.releaseEventLease).not.toHaveBeenCalled();
   });
 
+  it('waits for started dispatches while releasing claims that have not started', async () => {
+    const adapter = makeMockAdapter();
+    const gs = new GracefulShutdown(makeMockScheduler(), adapter);
+    const started = makeEvent('started');
+    const queued = makeEvent('queued');
+    let finishDispatch!: () => void;
+    const dispatch = new Promise<void>((resolve) => {
+      finishDispatch = resolve;
+    });
+
+    gs.trackClaimed(started);
+    gs.trackDispatch(started.id, dispatch);
+    gs.trackClaimed(queued);
+    const stopping = gs.shutdown();
+    await Promise.resolve();
+    expect(adapter.releaseEventLease).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: queued.id }),
+    );
+    expect(adapter.releaseEventLease).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: started.id }),
+    );
+
+    let stopped = false;
+    void stopping.then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finishDispatch();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it('passes a UTC ISO-8601 releasedAt timestamp to releaseEventLease', async () => {
     const adapter = makeMockAdapter();
     const scheduler = makeMockScheduler();

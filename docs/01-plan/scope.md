@@ -43,6 +43,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 
 - **Constant-Time Ingestion Authentication & Access Control:**
   - v1 authenticates one configured API key associated with one configured `clientId`; key registries and per-tenant key management are out of scope.
+  - The embedded engine binds one `clientId` and one delivery HMAC secret at creation. Do not run multiple tenant configurations against the same SQLite database in v1: schedulers claim due events across tenants and dispatch uses the engine instance's HMAC secret.
   - Ingestion endpoints secured via Bearer token / API Key using `crypto.timingSafeEqual` over equal-length derived/hashed buffers with no early exits to prevent timing attacks.
   - Authenticated identity resolved to `client_id` and stamped onto all ingested event rows.
 - **Tenant Data Isolation & BOLA/IDOR Prevention:**
@@ -73,7 +74,8 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 
 | Feature / Capability                     | Classification | Rationale & Future Target                                                                                    |
 | :--------------------------------------- | :------------- | :----------------------------------------------------------------------------------------------------------- |
-| **Per-Tenant Configuration**             | Deferred       | v1 relies strictly on global configuration parameters. Per-client limits deferred to v2.                     |
+| **Runtime Client Registration & Multi-Client Dispatch** | Deferred | v1 binds one client identity and HMAC secret per engine instance. Host-managed runtime registration, credential rotation, and tenant-specific dispatch configuration are planned for v2.0.0. Until then, isolate each tenant in a separate database file. |
+| **Per-Tenant Configuration**             | Deferred       | v1 relies strictly on global configuration parameters. Per-client limits deferred to v2.0.                     |
 | **Administrative UI / Dashboard**        | Out-of-Scope   | Operators interact purely via HTTP APIs, CLI tooling, or direct SQL queries.                                 |
 | **External Metrics (OTel / Prometheus)** | Deferred       | v1 provides structured JSON logs. Prometheus exporters deferred to v1.1.                                     |
 | **Dead-Letter Queue (DLQ) Re-drive API** | Deferred       | Failed events remain stored as `failed`/`exhausted`. Manual SQL updates handle manual re-drives in v1.       |
