@@ -93,7 +93,7 @@
 | **7.1** | **Unit & Critical Path Test Suite**              | 3.1, 3.2, 5.3 | QA / Eng     | 6h   | Vitest suite achieving >= 95% coverage on critical paths (ingestion, atomic claim, retry scheduler/backoff, auth, HMAC/SSRF) and >= 80% overall coverage. Ingestion p95 latency benchmarked under 50 ms.                                               | Done  |
 | **7.2** | **Concurrency & Contention Stress Testing**      | 2.6, 4.1      | QA / Eng     | 8h   | Automated harness simulating >= 1,000 concurrent submissions and >= 100 parallel SQLite workers; exactly 1 job per tenant-key pair and 0 concurrent double-claims under at-least-once semantics. | Done  |
 | **7.3** | **Fault Injection & Crash Recovery Integration** | 2.7, 4.2      | QA / Eng     | 5h   | Process abort simulation verifies stale lease reclamation and resumption without lost events.                                                                                                                                                          | Done  |
-| **7.4** | **CI Workflow Setup**                            | 7.1, 7.2      | DevOps / Eng | 3h   | GitHub Actions workflow executing type checking, linting, unit tests, and SQLite integration/concurrency tests.                                                                                                                                       | Done  |
+| **7.4** | **CI Workflow Setup**                            | 7.1, 7.2      | DevOps / Eng | 3h   | GitHub Actions workflow executing type checking, linting, unit tests, and SQLite integration/concurrency tests.                                                                                                                                       | In Progress  |
 
 ---
 

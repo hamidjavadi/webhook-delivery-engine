@@ -42,7 +42,7 @@ jobs:
         run: pnpm lint
 
       - name: Test with coverage
-        run: pnpm exec vitest run --coverage
+        run: pnpm exec vitest run --coverage --maxWorkers=1 --minWorkers=1
 
       - name: Check atomic claim coverage
         run: node scripts/check-claim-coverage.mjs

@@ -230,15 +230,22 @@ network request occurs.
 - **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; Linux x64;
   repository's frozen dependency installation.
 - **Tests and checks:** `pnpm exec tsc --noEmit`, `pnpm lint`,
-  `pnpm exec vitest run --coverage`, `node scripts/check-claim-coverage.mjs`,
-  and `pnpm build` all passed. Vitest passed 21 files and 398 tests, including
+  `pnpm exec vitest run --coverage --maxWorkers=1 --minWorkers=1`,
+  `node scripts/check-claim-coverage.mjs`, and `pnpm build` all passed. Vitest
+  passed 21 files and 398 tests, including
   1,000 concurrent ingestion submissions and 100 independent SQLite workers
   claiming 1,000 events. Overall coverage was 98.52% statements/lines, 99.16%
   functions, and 95.73% branches. Both `claimDueEvents` and
   `compareClaimedEvents` reported 100% in all four coverage dimensions.
-- **Failed checks/open bugs:** None. The GitHub Actions run itself has not yet
-  occurred; these are local workflow-equivalent results.
-- **Go/No-Go:** Go for the WBS 7.4 workflow setup and its local verification.
+- **CI failure and correction:** The initial GitHub Actions run failed during
+  the default parallel Vitest run. Node.js workers crashed while tearing down
+  the `better-sqlite3` native addon (`RemoveEnvironmentCleanupHook` assertion),
+  then Vitest reported `ERR_IPC_CHANNEL_CLOSED`. The full suite passed locally
+  with Vitest limited to one worker, so CI now uses the same single-worker
+  setting to avoid parallel native-addon teardown.
+- **Failed checks/open bugs:** The original GitHub Actions run failed as
+  described; the corrected workflow is awaiting a new GitHub Actions result.
+- **Go/No-Go:** Pending green GitHub Actions run for WBS 7.4.
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
