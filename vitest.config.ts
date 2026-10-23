@@ -12,6 +12,8 @@ export default defineConfig({
         'src/app/**/*.ts',
         'src/features/delivery/**/*.ts',
         'src/features/ingestion/**/*.ts',
+        'src/features/query/**/*.ts',
+        'src/features/http/**/*.ts',
         'src/features/scheduler/**/*.ts',
         'src/security/**/*.ts',
         'src/storage/**/*.ts',
@@ -22,6 +24,24 @@ export default defineConfig({
         functions: 80,
         statements: 80,
         'src/app/lifecycle.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/app/http.server.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/features/ingestion/ingestion.routes.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/features/query/query.routes.ts': {
           branches: 95,
           functions: 95,
           lines: 95,

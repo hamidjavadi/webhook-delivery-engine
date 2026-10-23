@@ -21,14 +21,16 @@ export type Timestamp = string;
 /**
  * Lifecycle states persisted for a webhook event.
  */
-export type EventStatus = 'pending' | 'processing' | 'delivered' | 'retry' | 'failed';
+export const EVENT_STATUSES = ['pending', 'processing', 'delivered', 'retry', 'failed'] as const;
+export type EventStatus = (typeof EVENT_STATUSES)[number];
 
 /**
  * Result recorded for a delivery attempt. `exhausted` means the event reached
  * a terminal unsuccessful state, either through a permanent response or by
  * reaching the configured retry limit.
  */
-export type AttemptOutcome = 'success' | 'retry_scheduled' | 'exhausted';
+export const ATTEMPT_OUTCOMES = ['success', 'retry_scheduled', 'exhausted'] as const;
+export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
 
 /**
  * Durable webhook delivery work together with its immutable input and lease

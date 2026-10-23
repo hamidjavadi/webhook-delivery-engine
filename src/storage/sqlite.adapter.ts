@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { SQLInputValue } from 'node:sqlite';
 import Database from 'better-sqlite3';
+import { ATTEMPT_OUTCOMES, EVENT_STATUSES } from '../core/types.js';
 import type {
   AttemptRecord,
   AttemptOutcome,
@@ -9,6 +10,7 @@ import type {
   Timestamp,
   WebhookEvent,
 } from '../core/types.js';
+import { InvalidPageCursorError } from '../core/errors.js';
 import type {
   ClaimDueEventsInput,
   DatabaseAdapter,
@@ -47,15 +49,6 @@ function createMigrationConnection(database: DatabaseConnection): SqliteMigratio
     },
   };
 }
-
-const eventStatuses: readonly EventStatus[] = [
-  'pending',
-  'processing',
-  'delivered',
-  'retry',
-  'failed',
-];
-const attemptOutcomes: readonly AttemptOutcome[] = ['success', 'retry_scheduled', 'exhausted'];
 
 /**
  * SQLite implementation of the driver-neutral event persistence contract.
@@ -356,7 +349,7 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
 function readEvent(value: unknown): WebhookEvent {
   const row = asRow(value, 'event');
   const status = readStringProperty(row, 'status');
-  if (!eventStatuses.includes(status as EventStatus)) {
+  if (!EVENT_STATUSES.includes(status as EventStatus)) {
     throw new Error('The database contains an invalid event status.');
   }
   const payload = parseJson(readStringProperty(row, 'payload'), 'payload');
@@ -383,7 +376,7 @@ function readEvent(value: unknown): WebhookEvent {
 function readAttempt(value: unknown): AttemptRecord {
   const row = asRow(value, 'attempt');
   const outcome = readStringProperty(row, 'outcome');
-  if (!attemptOutcomes.includes(outcome as AttemptOutcome)) {
+  if (!ATTEMPT_OUTCOMES.includes(outcome as AttemptOutcome)) {
     throw new Error('The database contains an invalid attempt outcome.');
   }
   return {
@@ -572,7 +565,7 @@ function decodeCursor(cursor: string): { readonly createdAt: Timestamp; readonly
   try {
     decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
   } catch (cause) {
-    throw new TypeError('cursor must be a valid event page cursor.', { cause });
+    throw new InvalidPageCursorError({ cause });
   }
   if (
     !Array.isArray(decoded) ||
@@ -580,7 +573,11 @@ function decodeCursor(cursor: string): { readonly createdAt: Timestamp; readonly
     typeof decoded[0] !== 'string' ||
     typeof decoded[1] !== 'string'
   ) {
-    throw new TypeError('cursor must be a valid event page cursor.');
+    throw new InvalidPageCursorError();
   }
-  return { createdAt: normalizeTimestamp(decoded[0], 'cursor'), id: decoded[1] };
+  try {
+    return { createdAt: normalizeTimestamp(decoded[0], 'cursor'), id: decoded[1] };
+  } catch (cause) {
+    throw new InvalidPageCursorError({ cause });
+  }
 }
