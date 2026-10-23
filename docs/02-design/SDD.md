@@ -451,6 +451,19 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, HMAC, and SSRF validation paths (G8, AC13). WBS 3.3 tests cover short-circuit auth, strict parsed-body schema, caller-vs-config destination errors, successful new/replay response shapes, tenant isolation, immutable original rows on replay, propagated adapter failures, and the 1,000-submission SQLite concurrency criterion. SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
+WBS 7.1 measures the public embedded `enqueue()` path against a temporary local
+SQLite file. Complete engine construction, startup, and migrations before
+timing; use a literal public IP fixture so validation performs no DNS lookup,
+and never dispatch to the destination. Warm up with 100 unique requests, then
+time three rounds of 500 unique requests using `performance.now()`. Calculate
+each round's p95 with the nearest-rank method and report the median of the
+three p95 values, alongside the Node/pnpm versions and host details. The
+benchmark is an explicit local QA command rather than a timing assertion in
+the normal test suite, since shared CI/host load can distort latency results.
+Coverage runs remain the full Vitest suite with V8 instrumentation and report
+overall plus each named critical module; tests use deterministic fixtures and
+real SQLite where persistence contracts are exercised.
+
 ### 9.2 Migration and Deployment
 
 - Embedded deployment imports the public npm package into a host Node.js process; `start()` applies migrations before scheduler activation and `stop()` drains or safely releases work. A standalone HTTP service needs its own runnable server composition and is optional; the library import is not a process entry point.

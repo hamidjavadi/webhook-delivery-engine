@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AttemptRecord, Timestamp, WebhookEvent } from '../core/types.js';
-import { SqliteDatabaseAdapter } from './sqlite.adapter.js';
+import { compareClaimedEvents, SqliteDatabaseAdapter } from './sqlite.adapter.js';
 
 const timestamp = '2026-10-20T12:00:00.000Z';
 
@@ -29,6 +29,27 @@ function createEvent(overrides: Partial<WebhookEvent> = {}): WebhookEvent {
     ...overrides,
   };
 }
+
+describe('compareClaimedEvents', () => {
+  it('orders by timestamp and id while returning zero for equal keys', () => {
+    const older = createEvent({
+      id: 'event-a',
+      createdAt: '2026-10-20T11:59:00.000Z',
+    });
+    const newer = createEvent({
+      id: 'event-z',
+      createdAt: '2026-10-20T12:01:00.000Z',
+    });
+    const sameTimeEarlierId = createEvent({ id: 'event-a' });
+    const sameTimeLaterId = createEvent({ id: 'event-z' });
+
+    expect(compareClaimedEvents(older, newer)).toBe(-1);
+    expect(compareClaimedEvents(newer, older)).toBe(1);
+    expect(compareClaimedEvents(sameTimeEarlierId, sameTimeLaterId)).toBe(-1);
+    expect(compareClaimedEvents(sameTimeLaterId, sameTimeEarlierId)).toBe(1);
+    expect(compareClaimedEvents(sameTimeEarlierId, sameTimeEarlierId)).toBe(0);
+  });
+});
 
 function createAttempt(
   overrides: Omit<Partial<AttemptRecord>, 'outcome'> = {},
@@ -308,6 +329,13 @@ describe('SqliteDatabaseAdapter', () => {
     await expect(
       adapter.listEvents({ clientId: 'client-1', limit: 1, cursor: invalidShapeCursor }),
     ).rejects.toThrow(/cursor/i);
+    const invalidTimestampCursor = Buffer.from(
+      JSON.stringify(['not-an-ISO-timestamp', 'event-1']),
+      'utf8',
+    ).toString('base64url');
+    await expect(
+      adapter.listEvents({ clientId: 'client-1', limit: 1, cursor: invalidTimestampCursor }),
+    ).rejects.toThrow(/cursor/i);
   });
 
   it('claims due events once and increments each reserved attempt count', async () => {
@@ -354,6 +382,44 @@ describe('SqliteDatabaseAdapter', () => {
       ]),
     );
     expect(duplicateClaim).toEqual([]);
+  });
+
+  it('orders claims by creation time even when insertion order differs', async () => {
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'newer',
+        idempotencyKey: 'newer',
+        createdAt: '2026-10-20T12:01:00.000Z',
+      }),
+    );
+    await adapter.upsertEvent(
+      createEvent({
+        id: 'older',
+        idempotencyKey: 'older',
+        createdAt: '2026-10-20T11:59:00.000Z',
+      }),
+    );
+
+    const claimed = await adapter.claimDueEvents({
+      workerId: 'worker-1',
+      now: timestamp,
+      limit: 2,
+    });
+
+    expect(claimed.map(({ id }) => id)).toEqual(['older', 'newer']);
+  });
+
+  it('orders claims with matching creation times by id', async () => {
+    await adapter.upsertEvent(createEvent({ id: 'event-a', idempotencyKey: 'event-a' }));
+    await adapter.upsertEvent(createEvent({ id: 'event-z', idempotencyKey: 'event-z' }));
+
+    const claimed = await adapter.claimDueEvents({
+      workerId: 'worker-1',
+      now: timestamp,
+      limit: 2,
+    });
+
+    expect(claimed.map(({ id }) => id)).toEqual(['event-a', 'event-z']);
   });
 
   it('implements claims as a single conditional UPDATE with RETURNING', () => {
@@ -924,5 +990,13 @@ describe('SqliteDatabaseAdapter', () => {
         }),
       ),
     ).rejects.toThrow(/JSON/i);
+  });
+
+  it('rejects JSON values whose custom serializer returns undefined', async () => {
+    const payload = Object.defineProperty({}, 'toJSON', {
+      value: () => undefined,
+    }) as WebhookEvent['payload'];
+
+    await expect(adapter.upsertEvent(createEvent({ payload }))).rejects.toThrow(/serialized/i);
   });
 });

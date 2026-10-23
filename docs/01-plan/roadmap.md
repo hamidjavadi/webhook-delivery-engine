@@ -57,9 +57,10 @@
   - `M4.1`: REST endpoints operational (`POST /webhooks`, `GET /webhooks/:id`, `GET /webhooks/:id/attempts`).
   - `M4.2`: Standalone TypeScript library entry point (`createWebhookEngine`) exported.
   - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers in SQLite).
+  - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark recorded against the approved thresholds.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
   - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2).
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2). WBS 7.1 coverage and local p95 criteria are complete; results are recorded in the test plan. WBS 7.2–7.4 remain open.
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all Acceptance Criteria AC-1 through AC-14 pass.
 
 ---
