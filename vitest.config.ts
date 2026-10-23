@@ -29,6 +29,12 @@ export default defineConfig({
           lines: 95,
           statements: 95,
         },
+        'src/app/embedded.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
         'src/app/http.server.ts': {
           branches: 95,
           functions: 95,

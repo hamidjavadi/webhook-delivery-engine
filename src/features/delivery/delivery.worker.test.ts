@@ -254,6 +254,19 @@ describe('processDeliveryAttempt', () => {
 });
 
 describe('createDeliveryWorker', () => {
+  it('reports the started dispatch promise before its completion', async () => {
+    const harness = makeHarness();
+    const onError = vi.fn();
+    const onDispatchStarted = vi.fn();
+    const worker = createDeliveryWorker({ ...harness.options, onError, onDispatchStarted });
+
+    worker(makeEvent());
+
+    expect(onDispatchStarted).toHaveBeenCalledWith(expect.any(Object), expect.any(Promise));
+    await vi.waitFor(() => expect(harness.adapter.recordAttemptAndTransition).toHaveBeenCalled());
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('reports processing failures through its error callback', async () => {
     const harness = makeHarness();
     const onError = vi.fn();

@@ -31,10 +31,10 @@ export interface StoppableScheduler {
  * ### Lease tracking contract
  *
  * When the scheduler claims an event and hands it to the worker seam, callers
- * should immediately call `trackClaimed(event)`. Once the worker actually
- * begins network dispatch for that event, callers should call
- * `untrackClaimed(event.id)` to remove it from the tracked set. On shutdown,
- * every still-tracked event has its lease released via `releaseEventLease`.
+ * should immediately call `trackClaimed(event)`. When network dispatch starts,
+ * call `trackDispatch(event.id, work)` to move the event from releasable claims
+ * to work that shutdown must drain. `untrackClaimed` remains available for
+ * callers that only need claim release tracking.
  */
 export class GracefulShutdown {
   /**
@@ -43,8 +43,14 @@ export class GracefulShutdown {
    */
   private readonly pendingClaims = new Map<string, WebhookEvent>();
 
+  /** Dispatches that crossed the network-start boundary and must be drained. */
+  private readonly activeDispatches = new Set<Promise<void>>();
+
   /** Whether the shutdown sequence has been started (guards idempotency). */
   private shuttingDown = false;
+
+  /** Shared completion promise so concurrent stop calls await the same drain. */
+  private shutdownPromise: Promise<void> | null = null;
 
   /** Whether `register()` has been called (guards duplicate listener registration). */
   private registered = false;
@@ -106,6 +112,20 @@ export class GracefulShutdown {
   }
 
   /**
+   * Marks dispatch as started and tracks its completion for shutdown.
+   * The lease is no longer eligible for release once network dispatch begins.
+   */
+  trackDispatch(eventId: string, dispatch: Promise<unknown>): void {
+    this.pendingClaims.delete(eventId);
+    const tracked = dispatch.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.activeDispatches.add(tracked);
+    void tracked.then(() => this.activeDispatches.delete(tracked));
+  }
+
+  /**
    * Executes the graceful shutdown sequence exactly once.
    *
    * 1. Stops the scheduler (no new claims after this point).
@@ -119,11 +139,14 @@ export class GracefulShutdown {
    * @returns A promise that resolves when the shutdown sequence completes.
    */
   async shutdown(): Promise<void> {
-    if (this.shuttingDown) return;
+    if (this.shuttingDown) return this.shutdownPromise!;
     this.shuttingDown = true;
+    this.shutdownPromise = this.drainAndRelease();
+    return this.shutdownPromise;
+  }
 
+  private async drainAndRelease(): Promise<void> {
     await this.scheduler.stop();
-
     const releasedAt = new Date().toISOString();
     const releasePromises = Array.from(this.pendingClaims.values()).map((event) =>
       this.adapter
@@ -133,12 +156,11 @@ export class GracefulShutdown {
           releasedAt,
         })
         .catch(() => {
-          // Individual release failures are tolerated — the stale-lease
-          // recovery mechanism will reclaim these on the next startup.
+          // Failed releases remain recoverable through stale-lease recovery.
         }),
     );
-
     await Promise.allSettled(releasePromises);
     this.pendingClaims.clear();
+    await Promise.all(Array.from(this.activeDispatches));
   }
 }

@@ -86,6 +86,7 @@
 
 ### v2.0.0 — Enterprise Multi-Tenancy & Tooling
 
+- Host-managed runtime client registration, updates, and removal without rebuilding the host; tenant-specific authentication and HMAC configuration are resolved for each event (WBS 6.4).
 - Per-tenant configuration policies (custom retry intervals, rate limits, dedicated HMAC secrets).
 - Web-based administrative dashboard for inspection.
 - Dead-Letter Queue (DLQ) re-drive REST API.

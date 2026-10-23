@@ -31,6 +31,8 @@ export type DeliveryWorkerErrorHandler = (error: unknown, event: WebhookEvent) =
 /** Dependencies for adapting the async processor to the scheduler callback. */
 export interface DeliveryWorkerOptions extends DeliveryProcessorOptions {
   readonly onError: DeliveryWorkerErrorHandler;
+  /** Called after dispatch starts with the promise that includes persistence. */
+  readonly onDispatchStarted?: (event: WebhookEvent, work: Promise<boolean>) => void;
 }
 
 /**
@@ -111,7 +113,9 @@ export async function processDeliveryAttempt(
  */
 export function createDeliveryWorker(options: DeliveryWorkerOptions): OnClaimCallback {
   return (event) => {
-    void processDeliveryAttempt(event, options).catch((error: unknown) => {
+    const work = processDeliveryAttempt(event, options);
+    options.onDispatchStarted?.(event, work);
+    void work.catch((error: unknown) => {
       options.onError(error, event);
     });
   };

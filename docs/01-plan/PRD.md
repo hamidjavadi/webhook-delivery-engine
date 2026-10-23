@@ -164,7 +164,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - **FR-9 (MUST):** Missing or invalid API keys MUST return HTTP `401 Unauthorized` immediately.
 - **FR-10 (MUST):** Upon successful authentication, the engine MUST resolve the authenticated caller’s associated `client_id` and persist it into the `client_id` column of the `webhook_events` record during ingestion. This guarantees multi-tenant auditability and tenant-level data isolation.
 
-**v1 authentication configuration:** One configured API key is associated with one configured `clientId`. Successful authentication returns that identity to the caller; missing or invalid credentials produce the same unauthorized outcome. Key registries, key rotation APIs, and per-tenant key management are out of scope.
+**v1 authentication configuration:** One configured API key is associated with one configured `clientId`. Successful authentication returns that identity to the caller; missing or invalid credentials produce the same unauthorized outcome. Runtime client registration, key registries, key rotation APIs, and per-tenant key management are deferred to v2.0.0.
 
 ### 5.7 HMAC SHA-256 Signing (Outbound Delivery)
 
@@ -254,6 +254,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 ### 7.2 Out-of-Scope (v1)
 
+- Runtime client registration and multi-client dispatch configuration. v1 supports one configured client per engine instance; clients requiring separate credentials and HMAC secrets must use separately isolated database files. Host-managed runtime registration is planned for v2.0.0.
 - Per-tenant configuration and retry policies; v1 uses global configuration only.
 - Admin UI / dashboard; metrics export to Prometheus/OTel (log-based observability only).
 - Dead-letter re-drive / manual replay tooling (data model supports future re-drive, but no v1 endpoint).
