@@ -171,12 +171,7 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
       .all(now, input.workerId, now, now, input.limit)
       .map(readEvent);
 
-    return claimedEvents.sort((left, right) => {
-      if (left.createdAt !== right.createdAt) {
-        return left.createdAt < right.createdAt ? -1 : 1;
-      }
-      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-    });
+    return claimedEvents.sort(compareClaimedEvents);
   }
 
   /** @inheritdoc */
@@ -344,6 +339,16 @@ export class SqliteDatabaseAdapter implements DatabaseAdapter {
       .all(eventId, clientId);
     return rows.map(readAttempt);
   }
+}
+
+/** Compares claimed events by creation time, then by their unique id. */
+export function compareClaimedEvents(left: WebhookEvent, right: WebhookEvent): number {
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt < right.createdAt ? -1 : 1;
+  }
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
 }
 
 function readEvent(value: unknown): WebhookEvent {

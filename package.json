@@ -32,6 +32,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/storage/migrations/sql', 'dist/src/storage/migrations/sql', { recursive: true });\"",
     "test": "vitest run",
+    "benchmark:ingestion": "tsx scripts/benchmark-ingestion.ts",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write ."

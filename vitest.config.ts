@@ -54,6 +54,12 @@ export default defineConfig({
           lines: 95,
           statements: 95,
         },
+        'src/features/ingestion/ingestion.handler.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
         'src/features/query/query.routes.ts': {
           branches: 95,
           functions: 95,
@@ -90,6 +96,12 @@ export default defineConfig({
           lines: 95,
           statements: 95,
         },
+        'src/security/auth.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
         'src/features/ingestion/ingestion.schema.ts': {
           branches: 95,
           functions: 95,
@@ -104,6 +116,13 @@ export default defineConfig({
         },
         'src/security/ssrf.ts': {
           branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        // The adapter combines atomic claiming with persistence and defensive
+        // parsing paths; claim branches are reviewed with their focused tests.
+        'src/storage/sqlite.adapter.ts': {
           functions: 95,
           lines: 95,
           statements: 95,
