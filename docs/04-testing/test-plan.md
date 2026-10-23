@@ -219,6 +219,38 @@ network request occurs.
   formatting, and diff checks all completed successfully.
 - **Go/No-Go:** Go for WBS 7.3 crash recovery and resumption criteria.
 
+### WBS 7.4 CI Workflow Results (Issue #71)
+
+- **Workflow:** `.github/workflows/ci.yml` runs on pushes, pull requests, and
+  manual dispatch using Node.js 24.18.0 and pnpm 10.4.1. It installs the frozen
+  lockfile, type-checks, lints, runs the full Vitest suite with coverage,
+  enforces the focused SQLite atomic-claim coverage check, and builds the
+  package. The Vitest suite includes the SQLite integration, concurrency, and
+  crash-recovery tests.
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; Linux x64;
+  repository's frozen dependency installation.
+- **Tests and checks:** `pnpm exec tsc --noEmit`, `pnpm lint`,
+  `pnpm exec vitest run --coverage`, `node scripts/check-claim-coverage.mjs`,
+  and `pnpm build` passed locally under Node.js v24.16.0. Vitest passed 21
+  files and 398 tests, including
+  1,000 concurrent ingestion submissions and 100 independent SQLite workers
+  claiming 1,000 events. Overall coverage was 98.52% statements/lines, 99.16%
+  functions, and 95.73% branches. Both `claimDueEvents` and
+  `compareClaimedEvents` reported 100% in all four coverage dimensions.
+- **CI failure and correction:** GitHub Actions ran Node.js v24.21.0 and failed
+  during Vitest startup when `better-sqlite3` crashed in
+  `RemoveEnvironmentCleanupHook`, followed by Vitest's `ERR_IPC_CHANNEL_CLOSED`.
+  The same suite passes locally on Node.js v24.16.0 with both the default and
+  single-worker pools. CI is pinned to Node.js v24.18.0, before the observed
+  runtime cleanup-hook change, to keep this workflow on the v24 line. Both
+  replacement GitHub Actions runs passed (push run 39974007786 and pull
+  request run 39974013769).
+- **Failed checks/open bugs:** Initial Node.js v24.21.0 runs failed as
+  described. CI currently validates Node.js v24.18.0; compatibility with later
+  Node.js 24 releases remains an open native-addon compatibility issue.
+- **Go/No-Go:** Go for WBS 7.4 workflow setup; both push and pull request CI
+  runs pass.
+
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
   is exercised by `src/security/auth.test.ts`.
