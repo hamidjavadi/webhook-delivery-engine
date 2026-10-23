@@ -208,6 +208,34 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 
 - Chronological attempt rows (number, timestamp, status code/error, latency, outcome) for the tenant-scoped event. Errors: `401`, `404` (cross-tenant or unknown id).
 
+### 5.9 REST Transport Design (WBS 6.1)
+
+The standalone HTTP service uses Node's built-in `node:http` server, avoiding a new runtime dependency. Route registration and request/response mapping live in `src/features/ingestion/ingestion.routes.ts` and `src/features/query/query.routes.ts`; server construction and feature wiring belong to the application composition root. The transport calls the existing ingestion handler and `DatabaseAdapter` query methods rather than duplicating validation, persistence, or tenant rules. `src/security/auth.ts` remains the sole API-key authenticator. When both supported credential headers are present, `Authorization: Bearer` takes precedence; malformed authorization does not fall back to `x-api-key`.
+
+Query parameters are `status`, `limit`, and opaque `cursor`; unknown or invalid values return a generic `400 invalid_request`. `status` must be one of the canonical `EventStatus` values. `limit` is an integer from 1 through the adapter's 1,000-row maximum, defaulting to 100. A successful list is `{ "items": [...], "next_cursor": string | null }`. Items are event records serialized with snake_case wire keys, including delivery state and timestamps. Detail lookup first attempts the system id, then the tenant-scoped idempotency key; both paths use adapter methods that include `clientId`, and a miss returns the same generic `404 not_found`. Detail success returns the serialized event record. Attempts success returns `{ "items": [...] }` in attempt-number order and first verifies the tenant-scoped parent event exists so unknown and cross-tenant ids have identical `404` behavior.
+
+All four endpoints require authentication. The transport extracts a Bearer token or `x-api-key`, then passes only the authenticator result's `clientId` to ingestion and read methods. It returns generic JSON errors, never adapter, DNS, credential, or stack details. Malformed JSON and unsupported methods return `400` and `405` respectively; database failures return `503`. The query API has no write operations. No new schema or migration is required because `DatabaseAdapter` already exposes tenant-scoped lookup, pagination, and attempt-history methods.
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant HTTP as Node HTTP Transport
+    participant Auth as API Key Authenticator
+    participant Route as Route Handler
+    participant DB as Database Adapter
+    Caller->>HTTP: Request + API key
+    HTTP->>Auth: Authenticate extracted token
+    Auth-->>HTTP: clientId or unauthorized
+    alt unauthorized
+        HTTP-->>Caller: 401 generic JSON error
+    else authenticated
+        HTTP->>Route: Request + clientId
+        Route->>DB: Tenant-scoped lookup/list/attempt query
+        DB-->>Route: Tenant-owned result or empty
+        Route-->>Caller: 200 result or generic 404
+    end
+```
+
 ### 5.5 Outbound Delivery Contract (event egress)
 
 - `POST` to `destination_url` with headers: `x-webhook-signature: sha256=<hex HMAC-SHA256(secret, timestamp + '.' + body)>`, `x-webhook-timestamp: <unix seconds>`, `x-webhook-event-id: <system id>`, and the event `id` embedded in the body (FR-11/FR-12, A2). No request is ever dispatched unsigned (FR-13).

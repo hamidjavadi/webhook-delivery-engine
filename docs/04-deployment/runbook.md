@@ -11,16 +11,15 @@ Node.js service using one local SQLite database on persistent storage. SQLite
 uses WAL mode and a 5-second busy timeout; startup migrations run before
 application components start. PostgreSQL and MySQL are not supported in v1.0.
 
-**Release blocker:** the application entry point, HTTP server, and WBS 4.1
-polling loop are not implemented yet. WBS 2.7 supplies the atomic stale-lease
-recovery operation, but no background process invokes it until the poll loop
-is delivered. WBS 3.1 supplies a credential authenticator, but no HTTP route
-extracts credentials or maps its unauthorized result to an actual response yet.
-Do not deploy this revision as a functioning delivery service or rely on
-automatic stale-lease recovery or HTTP authentication.
+**Release blocker:** an authenticated HTTP server factory and WBS 6.1 routes
+are implemented, but the repository has no runnable application entry point or
+integrated WBS 4.1 polling/dispatch lifecycle. WBS 2.7 supplies atomic
+stale-lease recovery, but no background process invokes it until that lifecycle
+is wired. Do not deploy this revision as a functioning delivery service or
+rely on automatic stale-lease recovery.
 
 WBS 3.2 adds a strict ingestion-body schema and HTTPS destination preflight
-validation. This validation has no HTTP transport integration and is not a
+validation, now integrated with WBS 6.1 HTTP routes. This validation is not a
 connection pin; before enabling outbound delivery, the dispatcher must validate
 and pin resolved addresses at connection time and disable redirects or
 revalidate every redirect target to prevent DNS rebinding.
@@ -65,6 +64,9 @@ validation, verify the deterministic suite with
 src/features/ingestion/ingestion.schema.test.ts`. Run the full release checks
 above before any future release candidate. Automated deployment, health
 probes, and live environment checks are not configured.
+For the WBS 6.1 REST transport, run
+`pnpm exec vitest run src/app/http.server.test.ts`; this uses a loopback HTTP
+listener and an isolated temporary SQLite database without external services.
 
 ## Health, Monitoring, and Alerts
 
