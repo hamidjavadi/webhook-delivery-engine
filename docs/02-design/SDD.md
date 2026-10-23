@@ -78,11 +78,43 @@ flowchart LR
 
 - **Inside the boundary:** ingestion API, authentication middleware, validation, idempotent enqueue, claim scheduler, delivery worker, backoff computation, HMAC signing, attempt audit persistence, DB adapters, migration runner, structured logging.
 - **Outside the boundary:** the producer's application (embeds or calls the engine), the external webhook consumer (verifies HMAC at its own discretion), database server administration, reverse proxies/TLS termination.
-- **Deployment modes:** (a) embedded library import within a host Node.js process; (b) standalone HTTP service via `pnpm dev`. Both share identical internal modules; only the transport layer differs.
+- **Deployment modes:** (a) the primary v1 delivery is a public npm package imported into a host Node.js process; the host owns its process, HTTP listener, and signal handlers. (b) An optional standalone HTTP service can use the same engine and transport modules, but requires a separate runnable composition entry point. The package import entry point is not a CLI or process runner.
 
 ### 2.3 Data Flow Summary
 
-Ingestion path (synchronous, fast): a transport or embedded caller supplies the parsed request and authentication result to the application handler → handler checks authentication, validates the strict request schema, resolves and SSRF-validates the effective destination, constructs a server-owned event, and calls the adapter's atomic upsert on `UNIQUE(client_id, idempotency_key)` → returns an application-level 202 result with `{ id, idempotency_key, idempotent_replay, status: "pending" }`. WBS 3.3 does not register routes, parse raw HTTP bodies, or start a server. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
+Ingestion path (synchronous, fast): HTTP transport extracts credentials and parses the request; the embedded package accepts typed input through its public facade, which binds the engine instance's configured `clientId`. Both paths call the shared handler, which validates the strict request schema, resolves and SSRF-validates the effective destination, constructs a server-owned event, and calls the adapter's atomic upsert on `UNIQUE(client_id, idempotency_key)` → returns an application-level result with `{ id, idempotency_key, idempotent_replay, status: "pending" }`. WBS 3.3 does not register routes, parse raw HTTP bodies, or start a server. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
+
+### 2.4 Embedded npm Package and Engine Lifecycle (WBS 6.2)
+
+The package is published publicly as `webhook-delivery-engine` and consumed through the package root. `src/index.ts` is the stable ESM entry point and exports `createWebhookEngine(...)` plus the public TypeScript option, input, and result types. The published package metadata points `exports` and `types` at the built JavaScript and declaration files and includes the SQLite migration assets required at runtime. The embedded API does not start an HTTP listener or register process signal handlers.
+
+`createWebhookEngine(options)` returns a typed engine with `start()`, `stop()`, and programmatic ingestion and tenant-scoped query methods. The configured `clientId` is bound to that engine instance; callers cannot override it per request. `start()` applies pending migrations before starting the scheduler and resolving. Calls that enqueue or query events are accepted only after startup succeeds. `stop()` is idempotent: it stops new polling and claims, waits for active dispatches to finish within their configured request timeouts, releases claimed events whose dispatch has not started, and closes engine-owned resources. The host application installs signal handlers and awaits `stop()` during its shutdown.
+
+The host supplies runtime configuration and a persistent SQLite location to the factory; the engine owns the adapter it creates and closes it on stop. The implementation reuses the existing ingestion validation/idempotency path, dispatcher, scheduler, and tenant-scoped adapter queries rather than exposing internal handlers or requiring the host to compose feature modules.
+
+```mermaid
+sequenceDiagram
+    participant Host as Host Node.js Application
+    participant Package as Public npm Package
+    participant Engine as Composed Engine
+    participant DB as SQLite Adapter
+    participant Scheduler as Claim Scheduler
+    participant Worker as Delivery Worker
+    Host->>Package: import createWebhookEngine
+    Package->>Engine: create from validated options
+    Host->>Engine: start()
+    Engine->>DB: apply pending migrations
+    Engine->>Scheduler: start polling after migrations
+    Engine-->>Host: start resolved
+    Host->>Engine: enqueue/query using bound clientId
+    Scheduler->>DB: recover leases and claim due events
+    Scheduler->>Worker: dispatch claimed events
+    Host->>Engine: stop()
+    Engine->>Scheduler: stop polling and claiming
+    Engine->>Worker: drain active dispatches
+    Engine->>DB: release undispatched claims and close
+    Engine-->>Host: stop resolved
+```
 
 ---
 
@@ -101,6 +133,7 @@ Ingestion path (synchronous, fast): a transport or embedded caller supplies the 
 | **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
 | **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
+| **Engine Composition & Lifecycle** (WBS 6.2) | Public package factory composes migrations, SQLite adapter, ingestion/query facade, scheduler, and delivery worker; exposes explicit asynchronous start/stop lifecycle for the host process. | Existing application modules |
 | **Structured Logger** (WBS 6.x)        | JSON lifecycle logging at `LOG_LEVEL`; mandatory redaction of `Authorization`, `x-api-key`, HMAC secret, and payload bodies (risk R6).                                                                                                                   | None                             |
 
 High cohesion / low coupling: every module depends only on the `DatabaseAdapter` and `EngineConfig` contracts; no module imports a concrete driver directly. This isolates dialect quirks (risk R7) behind the adapter seam.
@@ -210,7 +243,7 @@ Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x
 
 ### 5.9 REST Transport Design (WBS 6.1)
 
-The standalone HTTP service uses Node's built-in `node:http` server, avoiding a new runtime dependency. Route registration and request/response mapping live in `src/features/ingestion/ingestion.routes.ts` and `src/features/query/query.routes.ts`; server construction and feature wiring belong to the application composition root. The transport calls the existing ingestion handler and `DatabaseAdapter` query methods rather than duplicating validation, persistence, or tenant rules. `src/security/auth.ts` remains the sole API-key authenticator. When both supported credential headers are present, `Authorization: Bearer` takes precedence; malformed authorization does not fall back to `x-api-key`.
+The optional standalone HTTP transport uses Node's built-in `node:http` server, avoiding a new runtime dependency. Route registration and request/response mapping live in `src/features/ingestion/ingestion.routes.ts` and `src/features/query/query.routes.ts`; `src/app/http.server.ts` creates a server but does not listen or start a process. A standalone host entry point must compose the engine and server separately. The embedded package factory does not bind a listener. The transport calls the existing ingestion handler and `DatabaseAdapter` query methods rather than duplicating validation, persistence, or tenant rules. `src/security/auth.ts` remains the sole API-key authenticator. When both supported credential headers are present, `Authorization: Bearer` takes precedence; malformed authorization does not fall back to `x-api-key`.
 
 Query parameters are `status`, `limit`, and opaque `cursor`; unknown or invalid values return a generic `400 invalid_request`. `status` must be one of the canonical `EventStatus` values. `limit` is an integer from 1 through the adapter's 1,000-row maximum, defaulting to 100. A successful list is `{ "items": [...], "next_cursor": string | null }`. Items are event records serialized with snake_case wire keys, including delivery state and timestamps. Detail lookup first attempts the system id, then the tenant-scoped idempotency key; both paths use adapter methods that include `clientId`, and a miss returns the same generic `404 not_found`. Detail success returns the serialized event record. Attempts success returns `{ "items": [...] }` in attempt-number order and first verifies the tenant-scoped parent event exists so unknown and cross-tenant ids have identical `404` behavior.
 
@@ -408,8 +441,8 @@ Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler
 
 ### 9.2 Migration and Deployment
 
-- Deployment is a library import or a single-process HTTP service (`pnpm dev` / built output); migrations apply automatically on startup before the scheduler activates.
-- Environment prerequisites (D4): `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`, `WEBHOOK_URL`, `API_KEY`, and `HMAC_SECRET`; v1.0 has no PostgreSQL/MySQL connection settings.
+- Embedded deployment imports the public npm package into a host Node.js process; `start()` applies migrations before scheduler activation and `stop()` drains or safely releases work. A standalone HTTP service needs its own runnable server composition and is optional; the library import is not a process entry point.
+- Embedded factory configuration (D4) is supplied by the host: SQLite location, default destination, delivery HMAC secret, configured client identity, and worker/retry settings. `PORT` and HTTP API-key settings apply only when the host also enables the optional HTTP transport; v1.0 has no PostgreSQL/MySQL connection settings.
 - Rollback strategy: forward-only migrations; rollback is a previous release binary against a compatible schema (additive-only changes in v1.x).
 - WBS traceability: design covers WBS 1.0–8.0; the implementation phase begins only after design-checkpoint approval per master rules.
 
@@ -443,6 +476,7 @@ To keep the codebase aligned with the feature seams defined in §3, the source t
 
 ```text
 src/
+├── index.ts                   # Public npm package root exports (WBS 6.2)
 ├── features/                  # Business capabilities (one folder per feature)
 │   ├── ingestion/             # WBS 3.3 — idempotent event ingestion
 │   │   ├── ingestion.routes.ts        # POST /webhooks route registration
@@ -490,10 +524,10 @@ src/
 │   ├── ssrf.test.ts                   # Deterministic IPv4/IPv6 and DNS boundary tests (AC14)
 │   └── security.test.ts               # Shared security and isolation suites (AC12)
 ├── app/                       # Composition & transport roots
-│   ├── http.server.ts                 # Standalone HTTP service bootstrap (pnpm dev)
-│   ├── embedded.ts                    # Embedded-library entrypoint (programmatic API)
-│   ├── engine.ts                      # Feature wiring: scheduler + delivery + API
-│   └── lifecycle.ts                   # Graceful start/stop, scheduler activation
+│   ├── http.server.ts                 # HTTP server factory; does not own process startup
+│   ├── embedded.ts                    # Public createWebhookEngine factory implementation
+│   ├── engine.ts                      # Feature wiring: migrations, scheduler, delivery, APIs
+│   └── lifecycle.ts                   # Graceful engine start/stop and claim cleanup
 ├── shared/                    # Infrastructure-agnostic utilities
 │   ├── logger.ts                      # Structured JSON logger + redactors (R6)
 │   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
@@ -510,7 +544,7 @@ src/
 - **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
 - **storage** is the only layer that imports database drivers (`better-sqlite3` in v1.0); all statements remain parameterized (NFR-S4). PostgreSQL/MySQL drivers are deferred to v2.0.
 - **security** is the only layer implementing auth, SSRF, and rate-limit primitives; features call it as middleware, keeping FR-7/FR-9 enforcement consistent across routes.
-- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). Entry points: `embedded.ts` for library consumers, `http.server.ts` for the standalone service — both sharing `engine.ts` wiring, satisfying NFR-C4 (identical internals, differing transport only).
+- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). `src/index.ts` is the public npm import barrel and re-exports `createWebhookEngine` from `app/embedded.ts`; `app/http.server.ts` only creates an HTTP server and does not listen or run a process. A standalone service runner, if retained, is a separate entry point and is not required for embedding the package.
 
 ### 11.3 Rationale
 
