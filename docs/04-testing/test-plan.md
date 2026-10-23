@@ -242,11 +242,14 @@ network request occurs.
   `RemoveEnvironmentCleanupHook`, followed by Vitest's `ERR_IPC_CHANNEL_CLOSED`.
   The same suite passes locally on Node.js v24.16.0 with both the default and
   single-worker pools. CI is pinned to Node.js v24.18.0, before the observed
-  runtime cleanup-hook change, to keep this workflow on the v24 line while the
-  native-addon compatibility is addressed separately.
-- **Failed checks/open bugs:** The original GitHub Actions run failed as
-  described; the corrected workflow is awaiting a new GitHub Actions result.
-- **Go/No-Go:** Pending green GitHub Actions run for WBS 7.4.
+  runtime cleanup-hook change, to keep this workflow on the v24 line. Both
+  replacement GitHub Actions runs passed (push run 39974007786 and pull
+  request run 39974013769).
+- **Failed checks/open bugs:** Initial Node.js v24.21.0 runs failed as
+  described. CI currently validates Node.js v24.18.0; compatibility with later
+  Node.js 24 releases remains an open native-addon compatibility issue.
+- **Go/No-Go:** Go for WBS 7.4 workflow setup; both push and pull request CI
+  runs pass.
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
