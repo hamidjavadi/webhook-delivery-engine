@@ -464,6 +464,20 @@ Coverage runs remain the full Vitest suite with V8 instrumentation and report
 overall plus each named critical module; tests use deterministic fixtures and
 real SQLite where persistence contracts are exercised.
 
+WBS 7.3 validates crash recovery without changing runtime behavior. In a
+temporary on-disk SQLite database, a child Node process opens the real adapter,
+claims a seeded event, and exits immediately without running adapter cleanup.
+The parent verifies the committed `processing` lease survived the child exit,
+then advances Vitest's clock beyond the existing
+`max(timeoutLimitMs + 30000 ms, 90000 ms)` threshold. A real `ClaimScheduler`
+cycle runs recovery before claiming; its worker seam must receive the event
+again, proving that the persisted event was not lost. Assertions cover the
+recovery retry delay and cleared old lease before the new claim. The fixture
+uses supplied/fake timestamps, temporary files, and no network access. This
+checks at-least-once resumption; it does not claim exactly-once dispatch across
+the crash window. Keep the child isolated and await its exit before removing
+the database directory.
+
 ### 9.2 Migration and Deployment
 
 - Embedded deployment imports the public npm package into a host Node.js process; `start()` applies migrations before scheduler activation and `stop()` drains or safely releases work. A standalone HTTP service needs its own runnable server composition and is optional; the library import is not a process entry point.

@@ -4,8 +4,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AttemptRecord, Timestamp, WebhookEvent } from '../core/types.js';
+import type { EngineConfig } from '../config/engine.config.js';
+import { ClaimScheduler } from '../features/scheduler/scheduler.js';
 import { compareClaimedEvents, SqliteDatabaseAdapter } from './sqlite.adapter.js';
 
 const timestamp = '2026-10-20T12:00:00.000Z';
@@ -156,6 +158,51 @@ async function claimFromSeparateProcess(
       } catch (error) {
         reject(error);
       }
+    });
+  });
+}
+
+async function terminateProcessAfterClaim(
+  databasePath: string,
+  workerId: string,
+  now: string,
+  eventId: string,
+): Promise<void> {
+  const program = `
+    const { SqliteDatabaseAdapter } = await import(process.argv[1]);
+    const adapter = await SqliteDatabaseAdapter.open(process.argv[2]);
+    const events = await adapter.claimDueEvents({
+      workerId: process.argv[3],
+      now: process.argv[4],
+      limit: 1,
+    });
+    process.exit(events.some(({ id }) => id === process.argv[5]) ? 73 : 74);
+  `;
+  const child = spawn(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      program,
+      new URL('./sqlite.adapter.ts', import.meta.url).href,
+      databasePath,
+      workerId,
+      now,
+      eventId,
+    ],
+    { cwd: process.cwd(), stdio: 'ignore' },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code !== 73) {
+        reject(new Error(`Crash worker exited with unexpected code ${String(code)}.`));
+        return;
+      }
+      resolve();
     });
   });
 }
@@ -488,6 +535,78 @@ describe('SqliteDatabaseAdapter', () => {
       }
     }
   }, 60_000);
+
+  it('reclaims and resumes a persisted event after its worker process exits abruptly', async () => {
+    const event = createEvent();
+    await adapter.upsertEvent(event);
+    await terminateProcessAfterClaim(databasePath, 'crashed-worker', timestamp, event.id);
+
+    await expect(adapter.findEventById(event.id, event.clientId)).resolves.toMatchObject({
+      status: 'processing',
+      attemptCount: 1,
+      lockedAt: timestamp,
+      lockedBy: 'crashed-worker',
+    });
+
+    vi.useFakeTimers();
+    const recoveryTime = '2026-10-21T00:00:00.000Z';
+    vi.setSystemTime(new Date(recoveryTime));
+    let resolveRecovery!: () => void;
+    const recoveryCompleted = new Promise<void>((resolve) => {
+      resolveRecovery = resolve;
+    });
+    let recoveredEvent: WebhookEvent | null = null;
+    const recoverStaleLeases = adapter.recoverStaleLeases.bind(adapter);
+    vi.spyOn(adapter, 'recoverStaleLeases').mockImplementation(async (input) => {
+      const recoveredCount = await recoverStaleLeases(input);
+      if (recoveredCount > 0) {
+        recoveredEvent = await adapter.findEventById(event.id, event.clientId);
+        resolveRecovery();
+      }
+      return recoveredCount;
+    });
+
+    let resolveClaim!: (claimedEvent: WebhookEvent) => void;
+    const claimedAgain = new Promise<WebhookEvent>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const config: EngineConfig = {
+      concurrency: { workerCount: 1, batchSize: 1, pollIntervalMs: 10_000 },
+      timeoutLimitMs: 10_000,
+      retry: { maxAttempts: 5, baseDelayMs: 1_000, maxDelayMs: 60_000 },
+    };
+    const scheduler = new ClaimScheduler(adapter, config, resolveClaim);
+    scheduler.start();
+
+    try {
+      await recoveryCompleted;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const resumedEvent = await claimedAgain;
+      await scheduler.stop();
+      expect(recoveredEvent).toMatchObject({
+        id: event.id,
+        status: 'retry',
+        attemptCount: 1,
+        nextRetryAt: '2026-10-21T00:00:10.000Z',
+        lockedAt: null,
+        lockedBy: null,
+      });
+      expect(resumedEvent).toMatchObject({
+        id: event.id,
+        status: 'processing',
+        attemptCount: 2,
+      });
+      expect(resumedEvent.lockedBy).not.toBe('crashed-worker');
+      await expect(adapter.findEventById(event.id, event.clientId)).resolves.toMatchObject({
+        id: event.id,
+        status: 'processing',
+        attemptCount: 2,
+      });
+    } finally {
+      await scheduler.stop();
+      vi.useRealTimers();
+    }
+  }, 15_000);
 
   it('recovers expired leases and releases only the owning worker lease', async () => {
     await adapter.upsertEvent(
