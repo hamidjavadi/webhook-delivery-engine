@@ -222,7 +222,7 @@ network request occurs.
 ### WBS 7.4 CI Workflow Results (Issue #71)
 
 - **Workflow:** `.github/workflows/ci.yml` runs on pushes, pull requests, and
-  manual dispatch using Node.js 24 and pnpm 10.4.1. It installs the frozen
+  manual dispatch using Node.js 24.18.0 and pnpm 10.4.1. It installs the frozen
   lockfile, type-checks, lints, runs the full Vitest suite with coverage,
   enforces the focused SQLite atomic-claim coverage check, and builds the
   package. The Vitest suite includes the SQLite integration, concurrency, and
@@ -230,19 +230,20 @@ network request occurs.
 - **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; Linux x64;
   repository's frozen dependency installation.
 - **Tests and checks:** `pnpm exec tsc --noEmit`, `pnpm lint`,
-  `pnpm exec vitest run --coverage --maxWorkers=1 --minWorkers=1`,
-  `node scripts/check-claim-coverage.mjs`, and `pnpm build` all passed. Vitest
-  passed 21 files and 398 tests, including
+  `pnpm exec vitest run --coverage`, `node scripts/check-claim-coverage.mjs`,
+  and `pnpm build` passed locally under Node.js v24.16.0. Vitest passed 21
+  files and 398 tests, including
   1,000 concurrent ingestion submissions and 100 independent SQLite workers
   claiming 1,000 events. Overall coverage was 98.52% statements/lines, 99.16%
   functions, and 95.73% branches. Both `claimDueEvents` and
   `compareClaimedEvents` reported 100% in all four coverage dimensions.
-- **CI failure and correction:** The initial GitHub Actions run failed during
-  the default parallel Vitest run. Node.js workers crashed while tearing down
-  the `better-sqlite3` native addon (`RemoveEnvironmentCleanupHook` assertion),
-  then Vitest reported `ERR_IPC_CHANNEL_CLOSED`. The full suite passed locally
-  with Vitest limited to one worker, so CI now uses the same single-worker
-  setting to avoid parallel native-addon teardown.
+- **CI failure and correction:** GitHub Actions ran Node.js v24.21.0 and failed
+  during Vitest startup when `better-sqlite3` crashed in
+  `RemoveEnvironmentCleanupHook`, followed by Vitest's `ERR_IPC_CHANNEL_CLOSED`.
+  The same suite passes locally on Node.js v24.16.0 with both the default and
+  single-worker pools. CI is pinned to Node.js v24.18.0, before the observed
+  runtime cleanup-hook change, to keep this workflow on the v24 line while the
+  native-addon compatibility is addressed separately.
 - **Failed checks/open bugs:** The original GitHub Actions run failed as
   described; the corrected workflow is awaiting a new GitHub Actions result.
 - **Go/No-Go:** Pending green GitHub Actions run for WBS 7.4.
