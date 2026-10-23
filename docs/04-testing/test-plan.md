@@ -524,8 +524,8 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Formatting/diff:** Prettier check and `git diff --check` passed.
 - **Open limitations:** The HTTP server factory is available, but the
   repository still has no runnable composition entry point or integrated
-  scheduler/dispatch lifecycle. The change is awaiting project review. This
-  task does not claim the complete service is ready to deploy.
+  scheduler/dispatch lifecycle. WBS 6.1 was merged in PR #56 on October 23,
+  2026; that endpoint task does not claim the complete service is deployable.
 - **Go/No-Go:** Go for WBS 6.1 endpoint behavior and tenant isolation. No-Go
   for production deployment until the remaining runtime composition and
   delivery lifecycle are integrated.
