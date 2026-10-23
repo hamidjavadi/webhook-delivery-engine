@@ -13,7 +13,9 @@
   critical-path coverage measurement plus a controlled local ingestion p95
   benchmark; it does not change runtime behavior. WBS 7.2 adds concurrent
   multi-tenant idempotency and independent-process SQLite claim stress checks;
-  it does not change runtime behavior.
+  it does not change runtime behavior. WBS 7.3 adds a child-process crash and
+  restart recovery integration check; it does not change runtime behavior
+  unless the harness exposes a defect in the approved recovery flow.
   PostgreSQL and MySQL are deferred to v2.0 and are not part of v1.0 validation.
 
 ## Goals and Out of Scope
@@ -74,6 +76,15 @@ cycles resume. Use real SQLite integration tests for recovery/claim ordering
 and a bounded local idle benchmark to measure scheduler CPU overhead against
 the 10% target. OS signal registration and in-flight dispatch draining are
 excluded because they belong to WBS 4.2.
+For Task 7.3, use a temporary on-disk SQLite database and a child Node process
+to persist an event claim and terminate abruptly while it is `processing`.
+After child exit, verify the lease and event remain persisted, advance the
+supplied recovery time past the approved stale threshold, and use the real
+adapter and scheduler path to reclaim and claim the event again. Assert the
+event is not lost and that recovery leaves its lease fields cleared until a
+new claim is made. Keep the test deterministic by supplying timestamps; do not
+wait 90 seconds or contact external services. This is at-least-once recovery:
+the test verifies resumption, not exactly-once dispatch across a crash.
 For Task 5.4, verify 2xx success, permanent 4xx classification (including
 unlisted 4xx defaults), retryable 408/409/429 and 5xx/network failures, retry
 exhaustion at `maxAttempts`, lease-owner enforcement, and atomic attempt/state
@@ -175,6 +186,39 @@ network request occurs.
 - **Failed tests/open bugs:** None.
 - **Go/No-Go:** Go for WBS 7.2 concurrency and contention acceptance criteria.
 
+### WBS 7.3 QA Results (Issue #68)
+
+- **Environment:** Node.js v24.16.0; pnpm 12.6.0; Vitest 3.2.7; Linux x64;
+  temporary on-disk SQLite database with the real `better-sqlite3` adapter.
+  The project-pinned pnpm 10.4.1 signature could not be verified because the
+  configured registry was unreachable; validation commands completed under
+  pnpm 12.6.0.
+- **Crash injection:** A separate Node process claimed the seeded event and
+  exited with code 73 immediately after the claim, without closing the adapter.
+  The parent confirmed the persisted `processing` status, first attempt count,
+  lease timestamp, and crashed worker id.
+- **Recovery and resumption:** The real scheduler ran with deterministic fake
+  time beyond the 90-second minimum stale threshold. Recovery returned the
+  event to `retry`, cleared the old lease, and scheduled the retry 10 seconds
+  later. The next poll claimed the same event with attempt count 2 and a new
+  worker id; the event remained persisted. No 90-second sleep or network call
+  was used.
+- **TDD note:** This is a verification-only WBS task. The focused integration
+  test passed on its first run against the existing recovery implementation;
+  no artificial failing assertion or production change was introduced.
+- **Tests and coverage:** Focused crash/recovery test passed (1 test). The
+  complete Vitest suite passed (21 files, 398 tests): 98.52% statements/lines,
+  99.16% functions, and 95.72% branches overall. Scheduler coverage was 95.89%
+  lines/statements, 100% functions, and 96.15% branches.
+- **Build/lint/format/diff:** `pnpm build`, `pnpm lint`, Prettier check on all
+  changed files, and `git diff --check` passed.
+- **Open bugs/limitations:** The abrupt-exit case verifies recovery after a
+  committed claim, not a crash during an uncommitted SQLite transaction;
+  delivery remains at-least-once across the crash window. The pinned pnpm
+  signature limitation is recorded above; the requested test, build, lint,
+  formatting, and diff checks all completed successfully.
+- **Go/No-Go:** Go for WBS 7.3 crash recovery and resumption criteria.
+
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
   Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
   is exercised by `src/security/auth.test.ts`.
@@ -209,6 +253,7 @@ network request occurs.
 | One atomic `UPDATE ... RETURNING` statement selects due ordered rows, reserves attempts, stamps leases, and returns complete claimed events | `src/storage/sqlite.adapter.test.ts` |
 | Competing independent processes claim a shared due-event batch with zero duplicate ids and no attempt-count drift | `src/storage/sqlite.adapter.test.ts` |
 | At least 100 independent SQLite worker processes claim 1,000 due events with no duplicate ids and matching persisted lease owners | WBS 7.2 cross-process SQLite stress test |
+| An abruptly terminated child process leaves its event persisted and eligible for recovery; the real SQLite recovery and scheduler path reclaims it without event loss | WBS 7.3 crash/restart integration test |
 | Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
 | Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
 | Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
