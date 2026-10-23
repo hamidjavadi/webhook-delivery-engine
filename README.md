@@ -63,7 +63,7 @@ try {
 }
 ```
 
-The configured `clientId` is bound to the engine. `start()` applies SQLite migrations before accepting API calls. `stop()` stops polling, releases claims that have not begun dispatch, waits for started delivery work, and closes the database. The host application owns its HTTP listener and process signal handlers.
+The configured `clientId` is bound to the engine. `logLevel` optionally sets the structured logger threshold; otherwise the package uses `LOG_LEVEL` or `info`. Structured JSON records go to standard output, and sensitive credential, payload, and request fields are redacted. `start()` applies SQLite migrations before accepting API calls. `stop()` stops polling, releases claims that have not begun dispatch, waits for started delivery work, and closes the database. The host application owns its HTTP listener and process signal handlers.
 
 ## Development
 

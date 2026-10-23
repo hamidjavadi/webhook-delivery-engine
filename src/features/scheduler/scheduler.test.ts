@@ -427,6 +427,19 @@ describe('ClaimScheduler', () => {
     expect(onError).toHaveBeenCalledWith(error);
   });
 
+  it('reports the number of stale leases recovered during a poll cycle', async () => {
+    const adapter = makeMockAdapter();
+    (adapter.recoverStaleLeases as ReturnType<typeof vi.fn>).mockResolvedValueOnce(3);
+    const onRecovery = vi.fn();
+    const scheduler = new ClaimScheduler(adapter, BASE_CONFIG, vi.fn(), undefined, onRecovery);
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await scheduler.stop();
+
+    expect(onRecovery).toHaveBeenCalledWith(3);
+  });
+
   it('continues without throwing when no onError callback is provided and adapter errors', async () => {
     const adapter = makeMockAdapter();
     (adapter.recoverStaleLeases as ReturnType<typeof vi.fn>).mockRejectedValueOnce(

@@ -8,6 +8,7 @@ export type { EngineConfig, EngineConcurrency, RetryPolicy } from './config/engi
 export type { EventPage, ListEventsInput } from './core/ports.js';
 export type { AttemptRecord, EventStatus, WebhookEvent } from './core/types.js';
 export type { IngestionRequest } from './features/ingestion/ingestion.schema.js';
+export type { LogLevel } from './shared/logger.js';
 export type {
   IngestionAcceptedResponse,
   IngestionHandlerFailure,

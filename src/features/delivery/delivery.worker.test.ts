@@ -254,6 +254,29 @@ describe('processDeliveryAttempt', () => {
 });
 
 describe('createDeliveryWorker', () => {
+  it('reports a payload-free attempt summary after persistence', async () => {
+    const harness = makeHarness(makeResult({ statusCode: 503 }), false);
+    const onError = vi.fn();
+    const onAttemptCompleted = vi.fn();
+    const worker = createDeliveryWorker({
+      ...harness.options,
+      onError,
+      onAttemptCompleted,
+    });
+
+    worker(makeEvent());
+
+    await vi.waitFor(() => expect(onAttemptCompleted).toHaveBeenCalled());
+    expect(onAttemptCompleted).toHaveBeenCalledWith(makeEvent(), {
+      outcome: 'retry_scheduled',
+      nextStatus: 'retry',
+      statusCode: 503,
+      latencyMs: 24,
+      persisted: false,
+    });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('reports the started dispatch promise before its completion', async () => {
     const harness = makeHarness();
     const onError = vi.fn();

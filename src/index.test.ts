@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as publicApi from './index.js';
 import { SqliteDatabaseAdapter } from './storage/sqlite.adapter.js';
 import type { WebhookEvent } from './core/types.js';
@@ -13,9 +13,14 @@ vi.mock('./security/ssrf.js', () => ({
 
 const directories: string[] = [];
 
+beforeEach(() => {
+  vi.stubEnv('LOG_LEVEL', 'silent');
+});
+
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })));
 });
 
@@ -323,34 +328,6 @@ describe('public package root', () => {
     ]);
     await stopping;
     expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it('emits a process warning when poll errors have no configured handler', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'webhook-engine-warning-'));
-    directories.push(directory);
-    vi.spyOn(SqliteDatabaseAdapter.prototype, 'recoverStaleLeases').mockRejectedValue(
-      'temporary poll failure',
-    );
-    const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
-    const engine = publicApi.createWebhookEngine({
-      databasePath: join(directory, 'engine.sqlite'),
-      clientId: 'tenant-1',
-      apiKey: 'api-key',
-      hmacSecret: 'hmac-secret',
-      defaultDestinationUrl: 'https://consumer.example/hooks',
-      config: {
-        concurrency: { workerCount: 1, batchSize: 1, pollIntervalMs: 60_000 },
-        timeoutLimitMs: 1000,
-        retry: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 },
-      },
-    });
-    await engine.start();
-    await vi.waitFor(() =>
-      expect(emitWarning).toHaveBeenCalledWith(expect.stringContaining('temporary poll failure'), {
-        code: 'WEBHOOK_ENGINE_ERROR',
-      }),
-    );
-    await engine.stop();
   });
 
   it('reports delivery persistence failures with the event to onError', async () => {

@@ -2,7 +2,7 @@
 
 | Field            | Value                                                    |
 | ---------------- | -------------------------------------------------------- |
-| **Status**       | Approved (v1.0.0); WBS 3.3 design proposal pending checkpoint |
+| **Status**       | Approved (v1.0.0); WBS 6.3 design approved |
 | **Owner**        | Product Engineer (Hamid Javadi)                          |
 | **Date**         | 2026-10-15                                               |
 | **Version**      | 1.0.0                                                    |
@@ -88,7 +88,7 @@ Ingestion path (synchronous, fast): HTTP transport extracts credentials and pars
 
 The package is published publicly as `webhook-delivery-engine` and consumed through the package root. `src/index.ts` is the stable ESM entry point and exports `createWebhookEngine(...)` plus the public TypeScript option, input, and result types. The published package metadata points `exports` and `types` at the built JavaScript and declaration files and includes the SQLite migration assets required at runtime. The embedded API does not start an HTTP listener or register process signal handlers.
 
-`createWebhookEngine(options)` returns a typed engine with `start()`, `stop()`, and programmatic ingestion and tenant-scoped query methods. The configured `clientId` is bound to that engine instance; callers cannot override it per request. `start()` applies pending migrations before starting the scheduler and resolving. Calls that enqueue or query events are accepted only after startup succeeds. The configured `workerCount` bounds active delivery callbacks; additional claimed events remain queued and undispatched. `stop()` is idempotent: it prevents queued callbacks from starting, stops polling and claiming, releases queued claims, waits for already-started callbacks (including attempt persistence) to finish within their configured request timeouts, and closes engine-owned resources. The host application installs signal handlers and awaits `stop()` during its shutdown. Optional `onError` receives poll or delivery failures; absent a callback, the engine emits a `WEBHOOK_ENGINE_ERROR` process warning without including event payloads or credentials.
+`createWebhookEngine(options)` returns a typed engine with `start()`, `stop()`, and programmatic ingestion and tenant-scoped query methods. The configured `clientId` is bound to that engine instance; callers cannot override it per request. `start()` applies pending migrations before starting the scheduler and resolving. Calls that enqueue or query events are accepted only after startup succeeds. The configured `workerCount` bounds active delivery callbacks; additional claimed events remain queued and undispatched. `stop()` is idempotent: it prevents queued callbacks from starting, stops polling and claiming, releases queued claims, waits for already-started callbacks (including attempt persistence) to finish within their configured request timeouts, and closes engine-owned resources. The host application installs signal handlers and awaits `stop()` during its shutdown. The structured logger records safe poll and delivery error context; optional `onError` receives the original error and, for delivery failures, the event.
 
 v1 supports one configured client per engine instance. Because schedulers claim due events across all tenants in the database and dispatch signs with the instance's configured HMAC secret, multiple tenant configurations must not share a database file in v1. Host-managed runtime registration and tenant-specific dispatch configuration are deferred to v2.0.0 (WBS 6.4); the host will remain responsible for the source of client configuration.
 
@@ -118,6 +118,16 @@ sequenceDiagram
     Engine-->>Host: stop resolved
 ```
 
+### 2.5 Structured JSON Logger (WBS 6.3)
+
+The engine will use the existing `pino` runtime dependency through a small `src/shared/logger.ts` module. `createWebhookEngine` will accept an optional typed `logLevel`; when omitted it will use `LOG_LEVEL`, then default to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written through Pino's standard output destination.
+
+The composition root will pass the logger through narrow logging callbacks so feature modules do not write directly to the console. Records will identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, API keys, HMAC secrets, raw exception messages, or stacks.
+
+Pino redaction will remove known sensitive fields (including case variants of `Authorization` and `x-api-key`, API/HMAC key fields, payload/body fields, and nested event/request equivalents) as defense in depth. Internal logging will use explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; this task does not add a transport, file sink, or telemetry exporter.
+
+Tests will verify the supported level selection and filtering, JSON record shape, event context, redaction of sensitive values at nested paths, and that poll/delivery errors do not leak raw messages or stacks.
+
 ---
 
 ## 3. Modules and Responsibilities
@@ -136,7 +146,7 @@ sequenceDiagram
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
 | **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
 | **Engine Composition & Lifecycle** (WBS 6.2) | Public package factory composes migrations, SQLite adapter, ingestion/query facade, scheduler, and delivery worker; exposes explicit asynchronous start/stop lifecycle for the host process. | Existing application modules |
-| **Structured Logger** (WBS 6.x)        | JSON lifecycle logging at `LOG_LEVEL`; mandatory redaction of `Authorization`, `x-api-key`, HMAC secret, and payload bodies (risk R6).                                                                                                                   | None                             |
+| **Structured Logger** (WBS 6.3)        | Pino-backed JSON lifecycle logging with configured level and mandatory redaction of credentials, HMAC secrets, payloads, and request bodies (risk R6).                                                                                                      | Pino, Engine Composition         |
 
 High cohesion / low coupling: every module depends only on the `DatabaseAdapter` and `EngineConfig` contracts; no module imports a concrete driver directly. This isolates dialect quirks (risk R7) behind the adapter seam.
 

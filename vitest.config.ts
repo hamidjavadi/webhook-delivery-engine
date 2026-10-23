@@ -16,6 +16,7 @@ export default defineConfig({
         'src/features/http/**/*.ts',
         'src/features/scheduler/**/*.ts',
         'src/security/**/*.ts',
+        'src/shared/**/*.ts',
         'src/storage/**/*.ts',
       ],
       exclude: ['src/**/*.test.ts'],
@@ -30,6 +31,12 @@ export default defineConfig({
           statements: 95,
         },
         'src/app/embedded.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/shared/logger.ts': {
           branches: 95,
           functions: 95,
           lines: 95,
