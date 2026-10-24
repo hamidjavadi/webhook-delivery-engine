@@ -5,7 +5,6 @@ import { createDeliveryWorker } from '../features/delivery/delivery.worker.js';
 import type { IngestionRequest } from '../features/ingestion/ingestion.schema.js';
 import { handleIngestion } from '../features/ingestion/ingestion.handler.js';
 import { ClaimScheduler } from '../features/scheduler/scheduler.js';
-import { createApiKeyAuthenticator } from '../security/auth.js';
 import { createStructuredLogger, resolveLogLevel, type LogLevel } from '../shared/logger.js';
 import { SqliteDatabaseAdapter } from '../storage/sqlite.adapter.js';
 import { GracefulShutdown } from './lifecycle.js';
@@ -16,8 +15,6 @@ export interface CreateWebhookEngineOptions {
   readonly databasePath: string;
   /** Tenant identity fixed for this engine instance. */
   readonly clientId: string;
-  /** Credential retained only by the in-process authenticator. */
-  readonly apiKey: string;
   /** HMAC key used to sign outbound requests. */
   readonly hmacSecret: string;
   /** HTTPS destination used when an ingestion request omits destination_url. */
@@ -57,10 +54,6 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
   validateOptions(options);
   const logger = createStructuredLogger({
     level: resolveLogLevel(options.logLevel, process.env.LOG_LEVEL),
-  });
-  const authenticate = createApiKeyAuthenticator({
-    apiKey: options.apiKey,
-    clientId: options.clientId,
   });
   let adapter: SqliteDatabaseAdapter | null = null;
   let scheduler: ClaimScheduler | null = null;
@@ -201,7 +194,7 @@ export function createWebhookEngine(options: CreateWebhookEngineOptions): Webhoo
     async enqueue(input) {
       const db = requireRunning();
       const result = await handleIngestion({
-        authentication: authenticate(options.apiKey),
+        clientId: options.clientId,
         body: input,
         defaultDestinationUrl: options.defaultDestinationUrl,
         database: db,
@@ -275,7 +268,6 @@ function validateOptions(options: CreateWebhookEngineOptions): void {
   for (const [name, value] of Object.entries({
     databasePath: options.databasePath,
     clientId: options.clientId,
-    apiKey: options.apiKey,
     hmacSecret: options.hmacSecret,
     defaultDestinationUrl: options.defaultDestinationUrl,
   })) {

@@ -64,7 +64,6 @@ function makeEngine(databasePath: string, logLevel: 'debug' | null = 'debug') {
   return createWebhookEngine({
     databasePath,
     clientId: 'tenant-a',
-    apiKey: 'api-key-value',
     hmacSecret: 'hmac-secret-value',
     defaultDestinationUrl: 'https://consumer.example/hooks',
     ...(logLevel === null ? {} : { logLevel }),
@@ -157,7 +156,6 @@ describe('embedded engine structured logging', () => {
     expect(records).toContain('delivery.attempt.completed');
     expect(records).toContain('engine.stopped');
     expect(records).not.toContain('payload-private-value');
-    expect(records).not.toContain('api-key-value');
     expect(records).not.toContain('hmac-secret-value');
   });
 

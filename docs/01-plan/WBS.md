@@ -51,8 +51,17 @@
 | :------ | :---------------------------------- | :------------ | :------------- | :--- | :-------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
 | **3.1** | **Constant-Time API-Key Authentication (Superseded)** | 1.2 | Security Eng | 3h | Historical implementation verified an API key and resolved its configured `clientId`. API-key authentication is no longer part of the v1 embedded-library scope. | Superseded |
 | **3.2** | **Payload & URL Validation (SSRF)** | 1.2 | Security Eng | 4h | Validate the documented ingestion JSON shape; accept only absolute HTTPS destination URLs without credentials; reject malformed URLs and any literal/resolved IPv4/IPv6 address in loopback, private, link-local, unspecified, multicast, reserved, or metadata ranges before dispatch. | Done |
-| **3.3** | **Idempotent Ingestion Handler** | 2.6, 3.2 | Full-Stack Eng | 4h | Validate parsed input and configured tenant identity, apply and validate WEBHOOK_URL fallback, atomically upsert by `(client_id, idempotency_key)`, and return an accepted result with system `id`, `idempotency_key`, replay flag, and pending status; duplicates never create another event. | Done; update required by 3.4 |
-| **3.4** | **Host-Owned Ingestion Identity** | 3.3 | Full-Stack Eng | TBD | Remove API-key requirements from embedded engine configuration and ingestion; stamp the host-configured `clientId` on accepted events, reject caller-supplied identity, and verify idempotency and tenant-scoped reads. | Ready |
+| **3.3** | **Idempotent Ingestion Handler** | 2.6, 3.2 | Full-Stack Eng | 4h | Validate parsed input and configured tenant identity, apply and validate WEBHOOK_URL fallback, atomically upsert by `(client_id, idempotency_key)`, and return an accepted result with system `id`, `idempotency_key`, replay flag, and pending status; duplicates never create another event. | Done; WBS 3.4 follow-up complete |
+| **3.4** | **Host-Owned Ingestion Identity** | 3.3 | Full-Stack Eng | 6h | Remove API-key requirements from embedded engine configuration and ingestion; stamp the host-configured `clientId` on accepted events, reject caller-supplied identity, and verify idempotency and tenant-scoped reads. | Implemented; awaiting review and merge |
+
+#### WBS 3.4 Subtasks
+
+| Task ID | Deliverable | Dependency | Owner | Est. | Acceptance Criterion | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **3.4.a** | Remove API key from embedded configuration | 3.3 | Full-Stack Eng | 1h | Public engine creation and enqueue work without an API-key option or authentication result. | Done |
+| **3.4.b** | Bind ingestion identity to configured client | 3.4.a | Full-Stack Eng | 2h | Accepted events use the engine's configured `clientId`; strict input rejects caller-supplied identity; idempotency and tenant-scoped reads remain covered. | Done |
+| **3.4.c** | Remove unsupported REST/authentication modules | 3.4.a | Full-Stack Eng | 1h | Unreferenced internal HTTP server, routes, API-key authenticator, and their transport-specific tests are removed; package root remains the supported interface. | Done |
+| **3.4.d** | Verify behavior and update records | 3.4.b, 3.4.c | Full-Stack Eng | 2h | Focused and full suites, coverage, type-check, lint, build, and ingestion benchmark pass; WBS, SDD, test plan, README, roadmap, and runbook reflect the result. | Done |
 
 ---
 

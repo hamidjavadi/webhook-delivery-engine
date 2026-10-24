@@ -23,10 +23,10 @@
 
 ### Phase 2: Ingestion Pipeline & Security Subsystems
 
-- **Estimated Effort:** ~9h baseline plus WBS 3.4 follow-up (estimate TBD).
+- **Estimated Effort:** ~15h total, including the 6h WBS 3.4 follow-up estimate.
 - **Objective:** Complete the host-driven ingestion path, prevent duplicate processing, and protect against unsafe destinations.
 - **Key Milestones:**
-  - `M2.1`: Host-owned ingestion identity: embedded calls require no API key, and accepted events use the `clientId` configured when the engine is created (WBS 3.4).
+  - `M2.1` (Complete): Host-owned ingestion identity: embedded calls require no API key, and accepted events use the `clientId` configured when the engine is created (WBS 3.4).
   - `M2.2`: Ingestion request schema and HTTPS destination validator reject malformed input, embedded URL credentials, and literal or DNS-resolved unsafe IPv4/IPv6 addresses before dispatch; the dispatcher revalidates addresses at connection time to mitigate DNS rebinding.
   - `M2.3`: Validated programmatic ingestion uses the host-configured tenant identity, applies the configured destination fallback under the same SSRF checks, and atomically upserts by tenant/key; new and replay results expose the same system id with an explicit replay flag and pending status.
 - **Mapped WBS Items:** WBS 3.0 (3.2, 3.3, 3.4); WBS 3.1 API-key authentication is superseded for v1.
@@ -54,13 +54,13 @@
 - **Estimated Effort:** ~38h (WBS 6.0: 11h, WBS 7.0: 22h, WBS 8.0: 5h)
 - **Objective:** Expose the embedded TypeScript library, validate under extreme concurrency, and satisfy all PRD release gates.
 - **Key Milestones:**
-  - `M4.1`: Programmatic ingestion and tenant-scoped query methods available through the embedded engine after WBS 3.4 is complete.
+  - `M4.1`: Programmatic ingestion and tenant-scoped query methods are available through the embedded engine; WBS 3.4 is complete.
   - `M4.2`: Public TypeScript library entry point (`createWebhookEngine`) exported.
   - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers in SQLite).
-  - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark recorded against the approved thresholds after WBS 3.4 is complete.
+  - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark were revalidated against the approved thresholds after WBS 3.4.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
   - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2). WBS 7.1 coverage and local p95 criteria must be revalidated after WBS 3.4; prior results are recorded in the test plan. WBS 7.2–7.4 remain open.
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 remain open.
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all Acceptance Criteria AC-1 through AC-14 pass.
 
 ---

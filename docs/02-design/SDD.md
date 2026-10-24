@@ -242,7 +242,7 @@ The host creates the engine with one non-empty `clientId`. The embedded library 
 
 The engine binds the configured `clientId` to its instance. Ingestion input must reject caller-supplied identity fields, and the handler stamps the bound identity onto every persisted event. The same configured identity scopes idempotency and all event and attempt-history reads. The tenant identity is immutable for an engine instance; runtime client registration and per-tenant dispatch configuration remain deferred to v2.0.0.
 
-WBS 3.4 is pending. The current implementation still contains the earlier API-key authentication path, so it does not satisfy this target contract until that work is implemented and verified.
+WBS 3.4 implements this contract: the public engine configuration has no API-key option, ingestion receives the configured `clientId` from the embedded composition root, and no authentication or unauthorized result is part of the programmatic ingestion flow. The unexported legacy HTTP server, transport routes, and API-key authenticator have been removed because external transport and caller authentication belong to the host application.
 
 ### 5.3 Payload and Destination Validation Contract (WBS 3.2; NFR-S6, AC14)
 

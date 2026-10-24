@@ -1,20 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { WebhookEvent } from '../../core/types.js';
 import type { DatabaseAdapter } from '../../core/ports.js';
-import type { ApiKeyAuthenticationResult } from '../../security/auth.js';
 import { validateDestinationUrl } from '../../security/ssrf.js';
 import { ingestionRequestSchema } from './ingestion.schema.js';
 
 /**
- * Input required to accept one validated, authenticated ingestion request.
+ * Input required to accept one validated ingestion request.
  *
- * The request body is expected to be parsed JSON; HTTP body parsing and API
- * key extraction are transport responsibilities. The database dependency is
- * limited to the canonical atomic upsert operation.
+ * The host-configured client identity is supplied separately from parsed
+ * request data. The database dependency is limited to the canonical atomic
+ * upsert operation.
  */
 export interface HandleIngestionInput {
-  /** Authentication result produced by the API-key authenticator. */
-  readonly authentication: ApiKeyAuthenticationResult;
+  /** Tenant identity configured by the host for this engine instance. */
+  readonly clientId: string;
   /** Parsed request body, validated by the handler before use. */
   readonly body: unknown;
   /** Configured HTTPS destination used when the request omits its destination. */
@@ -53,7 +52,6 @@ export interface IngestionAcceptedResponse {
  */
 export type IngestionHandlerFailure =
   | { readonly statusCode: 400; readonly body: { readonly error: 'invalid_request' } }
-  | { readonly statusCode: 401; readonly body: { readonly error: 'unauthorized' } }
   | { readonly statusCode: 422; readonly body: { readonly error: 'invalid_destination' } }
   | {
       readonly statusCode: 500;
@@ -66,29 +64,23 @@ export type IngestionHandlerFailure =
 export type IngestionHandlerResult = IngestionAcceptedResponse | IngestionHandlerFailure;
 
 /**
- * Authenticates, validates, and atomically persists one webhook event request.
+ * Validates and atomically persists one webhook event request.
  *
- * Authentication is checked before request or URL validation. The request
- * schema rejects caller-supplied identity and unknown properties. An omitted
- * destination uses the configured fallback, and both supplied and fallback
- * URLs are checked by the same fail-closed SSRF validator before persistence.
- * The system-generated event id and UTC timestamps are created in this
- * function. Idempotency and replay identity are delegated to the adapter's
- * atomic `(clientId, idempotencyKey)` upsert.
+ * The request schema rejects caller-supplied identity and unknown properties.
+ * An omitted destination uses the configured fallback, and both supplied and
+ * fallback URLs are checked by the same fail-closed SSRF validator before
+ * persistence. The system-generated event id and UTC timestamps are created
+ * in this function. Idempotency and replay identity are delegated to the
+ * adapter's atomic `(clientId, idempotencyKey)` upsert.
  *
- * @param input Authentication, parsed input, configured fallback, and the
- * adapter upsert capability.
- * @returns A stable accepted response or a safe validation/authentication
- * failure result.
+ * @param input Host-configured identity, parsed input, configured fallback,
+ * and the adapter upsert capability.
+ * @returns A stable accepted response or a safe validation failure result.
  * @throws When the database adapter rejects the upsert operation.
  */
 export async function handleIngestion(
   input: HandleIngestionInput,
 ): Promise<IngestionHandlerResult> {
-  if (!input.authentication.authenticated) {
-    return { statusCode: 401, body: { error: 'unauthorized' } };
-  }
-
   const parsed = ingestionRequestSchema.safeParse(input.body);
   if (!parsed.success) {
     return { statusCode: 400, body: { error: 'invalid_request' } };
@@ -107,7 +99,7 @@ export async function handleIngestion(
   const event: WebhookEvent = {
     id: randomUUID(),
     idempotencyKey: parsed.data.idempotency_key,
-    clientId: input.authentication.clientId,
+    clientId: input.clientId,
     destinationUrl: validation.url,
     payload: parsed.data.payload,
     metadata: {},

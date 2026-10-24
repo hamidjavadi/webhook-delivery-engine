@@ -16,7 +16,7 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
  * Validates the strict public request body for webhook ingestion.
  *
  * Client identity and timestamps are deliberately absent because the
- * authenticated server context supplies them. The optional destination URL
+ * configured engine context supplies them. The optional destination URL
  * is resolved to configuration by the ingestion handler before SSRF checks.
  */
 export const ingestionRequestSchema = z
