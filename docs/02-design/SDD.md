@@ -19,16 +19,16 @@
 
 ### 1.1 Context
 
-The Webhook Retry Engine is a lightweight, embeddable Node.js (≥ 24.x) and TypeScript library and optional standalone HTTP service that delivers outgoing webhooks to external consumer endpoints with durable persistence, idempotent ingestion, bounded retries, and full attempt observability. Today, single-shot HTTP POSTs to the configured `WEBHOOK_URL` silently discard events on any transient failure (network error, HTTP 5xx, timeout, 429), re-deliver duplicates after restarts, and provide no audit trail. The engine closes these gaps without introducing external message brokers (no Redis, Kafka, or RabbitMQ — constraint C2).
+The Webhook Retry Engine is a lightweight, embeddable Node.js (≥ 24.x) and TypeScript library that delivers outgoing webhooks to external consumer endpoints with durable persistence, idempotent ingestion, bounded retries, and full attempt observability. Today, single-shot HTTP POSTs to the configured `WEBHOOK_URL` silently discard events on any transient failure (network error, HTTP 5xx, timeout, 429), re-deliver duplicates after restarts, and provide no audit trail. The engine closes these gaps without introducing external message brokers (no Redis, Kafka, or RabbitMQ — constraint C2).
 
 ### 1.2 Goals (traceable to PRD §4)
 
 - **G1 — No silent loss:** every accepted event terminates in exactly one of `delivered`, `retry`, or `failed` with a complete recorded attempt history.
 - **G2 — Idempotency:** duplicate ingestion of the same (`client_id`, `idempotency_key`) pair creates exactly one delivery job, including under ≥ 1000-subject concurrent submission.
 - **G3/G4 — Reliability and concurrency safety:** bounded exponential backoff with full jitter; the driver-neutral claim contract is implemented for SQLite in v1.0 and guarantees no concurrent double-claims with WAL mode.
-- **G5 — Security:** constant-time API-key authentication on ingestion; HMAC SHA-256 signed deliveries with timestamp; strict tenant isolation (BOLA/IDOR prevention); SSRF-safe destination validation.
+- **G5 — Security:** host-owned access to in-process ingestion; the engine stamps its configured tenant identity; HMAC SHA-256 signed deliveries with timestamp; strict tenant isolation (BOLA/IDOR prevention); SSRF-safe destination validation.
 - **G6/G7 — Performance and observability:** p95 ingestion latency < 50 ms (SQLite local); idle claim overhead < 10% CPU; ≥ 200 events/s sustained ingestion; per-attempt records for 100% of attempts.
-- **G8 — Quality:** Vitest coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).
+- **G8 — Quality:** Vitest coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, configured tenant identity/isolation, atomic claim, retry scheduler, HMAC).
 
 ### 1.3 Non-Goals (Out of Scope, per `scope.md` §3)
 
@@ -38,7 +38,7 @@ Per-tenant configuration and retry policies; admin UI/dashboard; Prometheus/OTel
 
 | ID  | Constraint                        | Design Impact                                                                                                  |
 | --- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| C1  | Node.js ≥ 24.x, TypeScript strict | Native `fetch`, `crypto.timingSafeEqual`, strict null checks throughout                                        |
+| C1  | Node.js ≥ 24.x, TypeScript strict | Native `fetch`, `node:crypto` for UUIDs and HMAC, strict null checks throughout                              |
 | C2  | Zero heavy brokers                | Embedded SQL persistence + in-process scheduler; queue semantics implemented over relational rows              |
 | C3  | Master-rule governance            | Schema/API/technology choices finalized only at the design checkpoint with user approval                       |
 | C4  | At-least-once delivery            | Consumers deduplicate by system-generated event `id` (delivered in header and body); no exactly-once guarantee |
@@ -51,12 +51,12 @@ Per-tenant configuration and retry policies; admin UI/dashboard; Prometheus/OTel
 
 ```mermaid
 flowchart LR
-    subgraph Client["Producer / API Client"]
-        P[Authenticated caller with API key]
+    subgraph Client["Producer Application"]
+        P[Host application code]
     end
-    subgraph Engine["Webhook Retry Engine (embedded / HTTP service)"]
-        API[Ingestion & Query REST API]
-        AUTH[Constant-Time Auth Middleware]
+    subgraph Engine["Webhook Retry Engine (embedded library)"]
+        API[Programmatic Library Methods]
+        TENANT[Configured clientId binding]
         SSRF[URL & Payload Validator]
         ING[Idempotent Ingestion Handler]
         CFG[Global Config Provider]
@@ -67,7 +67,7 @@ flowchart LR
     end
     Consumer["Webhook Consumer (external, HTTPS)"]
 
-    P -->|202 async| API --> AUTH --> SSRF --> ING --> DB
+    P -->|enqueue| API --> TENANT --> SSRF --> ING --> DB
     CFG --> SCHED
     SCHED -->|atomic claim| DB --> WORK
     WORK --> SIGN -->|POST + HMAC headers| Consumer
@@ -76,17 +76,17 @@ flowchart LR
 
 ### 2.2 System Boundaries
 
-- **Inside the boundary:** ingestion API, authentication middleware, validation, idempotent enqueue, claim scheduler, delivery worker, backoff computation, HMAC signing, attempt audit persistence, DB adapters, migration runner, structured logging.
+- **Inside the boundary:** programmatic ingestion and query methods, configured tenant identity binding, validation, idempotent enqueue, claim scheduler, delivery worker, backoff computation, HMAC signing, attempt audit persistence, DB adapters, migration runner, structured logging.
 - **Outside the boundary:** the producer's application (embeds or calls the engine), the external webhook consumer (verifies HMAC at its own discretion), database server administration, reverse proxies/TLS termination.
-- **Deployment modes:** (a) the primary v1 delivery is a public npm package imported into a host Node.js process; the host owns its process, HTTP listener, and signal handlers. (b) An optional standalone HTTP service can use the same engine and transport modules, but requires a separate runnable composition entry point. The package import entry point is not a CLI or process runner.
+- **Deployment mode:** v1 is a public npm package imported into a host Node.js process; the host owns its process and signal handlers. The package import entry point is not a CLI or process runner.
 
 ### 2.3 Data Flow Summary
 
-Ingestion path (synchronous, fast): HTTP transport extracts credentials and parses the request; the embedded package accepts typed input through its public facade, which binds the engine instance's configured `clientId`. Both paths call the shared handler, which validates the strict request schema, resolves and SSRF-validates the effective destination, constructs a server-owned event, and calls the adapter's atomic upsert on `UNIQUE(client_id, idempotency_key)` → returns an application-level result with `{ id, idempotency_key, idempotent_replay, status: "pending" }`. WBS 3.3 does not register routes, parse raw HTTP bodies, or start a server. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
+Ingestion path (synchronous, fast): the embedded package accepts typed input through its public facade, which binds the engine instance's configured `clientId`. The shared handler validates the strict request schema, resolves and SSRF-validates the effective destination, constructs a server-owned event, and calls the adapter's atomic upsert on `UNIQUE(client_id, idempotency_key)` → returns an application-level result with `{ id, idempotency_key, idempotent_replay, status: "pending" }`. Delivery path (asynchronous): scheduler polls due rows → atomic conditional `UPDATE` claim → worker dispatch with HMAC-signed request → attempt row written → status transition (`delivered` / `retry` with `next_retry_at` / `failed`).
 
 ### 2.4 Embedded npm Package and Engine Lifecycle (WBS 6.2)
 
-The package is published publicly as `webhook-delivery-engine` and consumed through the package root. `src/index.ts` is the stable ESM entry point and exports `createWebhookEngine(...)` plus the public TypeScript option, input, and result types. The published package metadata points `exports` and `types` at the built JavaScript and declaration files and includes the SQLite migration assets required at runtime. The embedded API does not start an HTTP listener or register process signal handlers.
+The package is consumed through the public root entry point. `src/index.ts` exports `createWebhookEngine(...)` plus the public TypeScript option, input, and result types. The package export map exposes this library interface; REST routes and an HTTP server are outside the supported v1 package surface. The library does not start an HTTP listener or register process signal handlers.
 
 `createWebhookEngine(options)` returns a typed engine with `start()`, `stop()`, and programmatic ingestion and tenant-scoped query methods. The configured `clientId` is bound to that engine instance; callers cannot override it per request. `start()` applies pending migrations before starting the scheduler and resolving. Calls that enqueue or query events are accepted only after startup succeeds. The configured `workerCount` bounds active delivery callbacks; additional claimed events remain queued and undispatched. `stop()` is idempotent: it prevents queued callbacks from starting, stops polling and claiming, releases queued claims, waits for already-started callbacks (including attempt persistence) to finish within their configured request timeouts, and closes engine-owned resources. The host application installs signal handlers and awaits `stop()` during its shutdown. The structured logger records safe poll and delivery error context; optional `onError` receives the original error and, for delivery failures, the event.
 
@@ -122,9 +122,9 @@ sequenceDiagram
 
 The engine will use the existing `pino` runtime dependency through a small `src/shared/logger.ts` module. `createWebhookEngine` will accept an optional typed `logLevel`; when omitted it will use `LOG_LEVEL`, then default to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written through Pino's standard output destination.
 
-The composition root will pass the logger through narrow logging callbacks so feature modules do not write directly to the console. Records will identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, API keys, HMAC secrets, raw exception messages, or stacks.
+The composition root will pass the logger through narrow logging callbacks so feature modules do not write directly to the console. Records will identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, HMAC secrets, raw exception messages, or stacks.
 
-Pino redaction will remove known sensitive fields (including case variants of `Authorization` and `x-api-key`, API/HMAC key fields, payload/body fields, and nested event/request equivalents) as defense in depth. Internal logging will use explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; this task does not add a transport, file sink, or telemetry exporter.
+Pino redaction will remove known sensitive fields, credential-like values in host-provided data, HMAC key fields, payload/body fields, and nested event/request equivalents as defense in depth. Internal logging will use explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; this task does not add a transport, file sink, or telemetry exporter.
 
 Tests will verify the supported level selection and filtering, JSON record shape, event context, redaction of sensitive values at nested paths, and that poll/delivery errors do not leak raw messages or stacks.
 
@@ -137,14 +137,14 @@ Tests will verify the supported level selection and filtering, JSON record shape
 | **Domain Types** (WBS 1.2)             | `WebhookEvent`, `AttemptRecord`, `DatabaseAdapter`, `EngineConfig` contracts; the stable seam all modules program against.                                                                                                                               | None                             |
 | **Persistence Adapter** (WBS 2.3)      | Storage-owned `SqliteDatabaseAdapter` opens better-sqlite3, configures WAL, `busy_timeout=5000`, and foreign keys, applies SQLite migrations before returning, and implements `DatabaseAdapter` with parameterized SQL. PostgreSQL/MySQL adapters are deferred to v2.0. | Domain Types, Migration Runner   |
 | **Migration Runner** (WBS 2.2)         | Idempotent, in-process SQLite DDL migrations; no external CLI. Version/hash ledger and transactional application of scripts under `src/storage/migrations/sql/sqlite/`. | SQLite connection                |
-| **Auth Middleware** (WBS 3.1)          | Validates one configured API key using SHA-256 fixed-length digests and `crypto.timingSafeEqual`; returns the configured `clientId` on success and a uniform unauthorized result otherwise. HTTP transport maps that result to 401. | Auth configuration               |
+| **Host-Owned Identity** (WBS 3.4)    | Binds the `clientId` configured by the host to the engine instance; ingestion input cannot override it. The host controls access to the process and engine instance. | Engine configuration             |
 | **Validator / SSRF Guard** (WBS 3.2)   | Strict Zod ingestion-body schema and absolute-HTTPS URL validation; resolves hostnames and rejects any unsafe IPv4/IPv6 answer before dispatch. Uses Node built-ins and fails closed on lookup errors or empty results. | Domain Types, Node DNS/net, Zod |
-| **Ingestion Handler** (WBS 3.3)        | Accepts parsed input and an auth result; rejects unauthenticated or invalid requests before persistence, uses validated configured `WEBHOOK_URL` only when destination is omitted, constructs a server-owned pending event, and calls the atomic upsert. Returns the existing system id on replay without overwriting the accepted event. It is not an HTTP route/server. | DatabaseAdapter, Auth, Validator, configuration |
+| **Ingestion Handler** (WBS 3.3 / 3.4) | Accepts parsed input and the engine-bound `clientId`; rejects invalid input before persistence, uses validated configured `WEBHOOK_URL` only when destination is omitted, constructs a server-owned pending event, and calls the atomic upsert. Returns the existing system id on replay without overwriting the accepted event. | DatabaseAdapter, Validator, configuration |
 | **Claim Scheduler** (WBS 4.1)      | Poll loop: invokes SQLite stale-lease recovery once per cycle, then atomically claims due rows and emits claimed batches to workers.                                                                                                                           | Adapters, Config Provider        |
 | **Delivery Worker** (WBS 5.x) | Per-event dispatch with `timeoutLimitMs` abort; outcome classification per ADR-0004 (2xx success; non-retryable 4xx terminally fail with `outcome='exhausted'`; retryable 408, 409, 429, 5xx, and timeouts retry until `maxAttempts`); atomically writes attempt rows and applies status transitions (FR-6). | Scheduler, HMAC Module, Adapters    |
 | **HMAC Signing Module** (WBS 5.x)      | Computes `HMAC-SHA256(secret, timestamp + '.' + body)`; injects `x-webhook-signature` and `x-webhook-timestamp` headers; refuses unsigned dispatch (FR-13).                                                                                              | Config                           |
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
-| **Query API** (WBS 6.x)                | Tenant-scoped reads of event status and attempt history; every query carries `AND client_id = :authClientId`; cross-tenant access returns `404` (NFR-S7).                                                                                                | Adapters, Auth                   |
+| **Query Interface** (WBS 6.x)          | Tenant-scoped programmatic reads of event status and attempt history; every query carries `AND client_id = :configuredClientId`. | Adapters, Engine Configuration   |
 | **Engine Composition & Lifecycle** (WBS 6.2) | Public package factory composes migrations, SQLite adapter, ingestion/query facade, scheduler, and delivery worker; exposes explicit asynchronous start/stop lifecycle for the host process. | Existing application modules |
 | **Structured Logger** (WBS 6.3)        | Pino-backed JSON lifecycle logging with configured level and mandatory redaction of credentials, HMAC secrets, payloads, and request bodies (risk R6).                                                                                                      | Pino, Engine Composition         |
 
@@ -168,7 +168,7 @@ High cohesion / low coupling: every module depends only on the `DatabaseAdapter`
 | --------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
 | `id`                        | UUIDv4 (PK)         | System-generated, cryptographically random, non-enumerable; never client-supplied. |
 | `idempotency_key`           | TEXT                | Client-supplied; uniqueness scoped per client.                                     |
-| `client_id`                 | TEXT                | Resolved from authenticated caller; part of `UNIQUE(client_id, idempotency_key)`.  |
+| `client_id`                 | TEXT                | Bound from host configuration when the engine is created; part of `UNIQUE(client_id, idempotency_key)`. |
 | `destination_url`           | TEXT                | Fully qualified HTTPS URL, SSRF-validated at ingestion.                            |
 | `payload`                   | TEXT (JSON)         | Delivered body.                                                                    |
 | `metadata`                  | TEXT (JSON)         | Immutable JSON metadata associated with the accepted event.                        |
@@ -220,84 +220,33 @@ Lease release only changes a lease owned by the requesting worker and reverses i
 
 Migrations are hand-written, forward-only SQL versioned in-repo under `src/storage/migrations/sql/sqlite/` and applied by the in-house SQLite runner. The runner owns `schema_migrations(version, checksum, applied_at)`, loads SQL files in version order, computes SHA-256 checksums, skips already-applied files with matching checksums, rejects changed or missing applied files, and applies each pending set within one SQLite `BEGIN IMMEDIATE`/`COMMIT` transaction (rolling back on failure). The DDL files do not start nested transactions. PostgreSQL and MySQL migrations are deferred to v2.0. No down-migrations or destructive auto-migrations are supported; a schema change requires an ADR (see §10).
 
-The runner is implemented at `src/storage/migrations/runner.ts` against the SQLite connection surface, with all database operations confined to storage. Runtime composition awaits `SqliteDatabaseAdapter.open()` before starting the scheduler or server; that factory owns connection configuration and migrations. `src/app/bootstrap.ts` remains a lower-level migration seam for callers that manage a raw SQLite connection and must not be layered around `open()` for the same database. Automated migration/schema tests use Node.js `node:sqlite`; adapter integration tests use better-sqlite3 on temporary files. No PostgreSQL/MySQL test services or environment variables are required for v1.0. The core domain has no driver dependencies.
+The runner is implemented at `src/storage/migrations/runner.ts` against the SQLite connection surface, with all database operations confined to storage. Runtime composition awaits `SqliteDatabaseAdapter.open()` before starting the scheduler; that factory owns connection configuration and migrations. `src/app/bootstrap.ts` remains a lower-level migration seam for callers that manage a raw SQLite connection and must not be layered around `open()` for the same database. Automated migration/schema tests use Node.js `node:sqlite`; adapter integration tests use better-sqlite3 on temporary files. No PostgreSQL/MySQL test services or environment variables are required for v1.0. The core domain has no driver dependencies.
 
 ### 4.6 Sensitive Data and Retention
 
-Secrets (`API_KEY`, `HMAC_SECRET`, DB credentials) live only in environment configuration, never in the database, logs, or VCS. Payloads and response snippets are stored for the lifetime of the event row; retention beyond that is operator-managed (v1 provides no automatic purge — consistent with the out-of-scope DLQ/re-drive deferral).
+Secrets (HMAC secret and database credentials) live only in host-supplied configuration, never in the database, logs, or VCS. Payloads and response snippets are stored for the lifetime of the event row; retention beyond that is operator-managed (v1 provides no automatic purge — consistent with the out-of-scope DLQ/re-drive deferral).
 
 ---
 
-## 5. API / Event Contracts
+## 5. Programmatic and Event Contracts
 
-Base path: `/webhooks`. All routes require `Authorization: Bearer <token>` or `x-api-key` (FR-7). Versioning: path-prefix reserved (`/v1`) for future breaking changes; v1 endpoints unversioned under the configured `PORT`.
-
-### 5.1 `POST /webhooks` — Idempotent Ingestion
-
-- **Request body:** `{ "idempotency_key": string (non-empty, required), "payload": JSON (required), "destination_url": string (optional; defaults to configured WEBHOOK_URL) }`. The schema is strict and rejects unknown properties; `client_id` is derived from authenticated identity, and the client MUST NOT supply `id` or timestamps (FR-18). The payload must be recursively JSON-compatible (finite numbers, strings, booleans, null, arrays, and string-keyed objects).
-- **Success:** `202 Accepted` with `{ "id": <system UUID>, "idempotency_key": <key>, "idempotent_replay": true|false, "status": "pending" }` (FR-2).
-- **Errors:** `401 Unauthorized` (missing/invalid key, FR-9); `400 Bad Request` (schema violation); `422 Unprocessable Entity` (invalid/unsafe caller-supplied URL); `429 Too Many Requests` (fixed-window rate limit, NFR-S5); `503` on storage unavailability (NFR-R3). WBS 3.3 implements the internal handler contract, not this route or wire-level response mapping.
-- **Idempotency:** enforced by a single-statement atomic upsert against `UNIQUE(client_id, idempotency_key)`; concurrent duplicate submissions (≥ 1000 parallel, AC2) yield exactly one row and `idempotent_replay: true` on replays.
-
-### 5.2 `GET /webhooks` — List Events
-
-- **Query:** `status` (optional filter), cursor pagination.
-- **Success:** `200` with event summaries, strictly scoped `WHERE client_id = :authClientId` (NFR-S7).
-- **Errors:** `401`, `400` (invalid filter).
-
-### 5.3 `GET /webhooks/:id` — Event Status
-
-- Addressable by system `id` or `idempotency_key`; query carries `AND client_id = :authClientId`; any cross-tenant lookup returns **`404 Not Found`** (never `403`) to prevent metadata leakage/BOLA (FR-19, NFR-S7).
-
-### 5.4 `GET /webhooks/:id/attempts` — Attempt History
-
-- Chronological attempt rows (number, timestamp, status code/error, latency, outcome) for the tenant-scoped event. Errors: `401`, `404` (cross-tenant or unknown id).
-
-### 5.9 REST Transport Design (WBS 6.1)
-
-The optional standalone HTTP transport uses Node's built-in `node:http` server, avoiding a new runtime dependency. Route registration and request/response mapping live in `src/features/ingestion/ingestion.routes.ts` and `src/features/query/query.routes.ts`; `src/app/http.server.ts` creates a server but does not listen or start a process. A standalone host entry point must compose the engine and server separately. The embedded package factory does not bind a listener. The transport calls the existing ingestion handler and `DatabaseAdapter` query methods rather than duplicating validation, persistence, or tenant rules. `src/security/auth.ts` remains the sole API-key authenticator. When both supported credential headers are present, `Authorization: Bearer` takes precedence; malformed authorization does not fall back to `x-api-key`.
-
-Query parameters are `status`, `limit`, and opaque `cursor`; unknown or invalid values return a generic `400 invalid_request`. `status` must be one of the canonical `EventStatus` values. `limit` is an integer from 1 through the adapter's 1,000-row maximum, defaulting to 100. A successful list is `{ "items": [...], "next_cursor": string | null }`. Items are event records serialized with snake_case wire keys, including delivery state and timestamps. Detail lookup first attempts the system id, then the tenant-scoped idempotency key; both paths use adapter methods that include `clientId`, and a miss returns the same generic `404 not_found`. Detail success returns the serialized event record. Attempts success returns `{ "items": [...] }` in attempt-number order and first verifies the tenant-scoped parent event exists so unknown and cross-tenant ids have identical `404` behavior.
-
-All four endpoints require authentication. The transport extracts a Bearer token or `x-api-key`, then passes only the authenticator result's `clientId` to ingestion and read methods. It returns generic JSON errors, never adapter, DNS, credential, or stack details. Malformed JSON and unsupported methods return `400` and `405` respectively; database failures return `503`. The query API has no write operations. No new schema or migration is required because `DatabaseAdapter` already exposes tenant-scoped lookup, pagination, and attempt-history methods.
-
-```mermaid
-sequenceDiagram
-    actor Caller
-    participant HTTP as Node HTTP Transport
-    participant Auth as API Key Authenticator
-    participant Route as Route Handler
-    participant DB as Database Adapter
-    Caller->>HTTP: Request + API key
-    HTTP->>Auth: Authenticate extracted token
-    Auth-->>HTTP: clientId or unauthorized
-    alt unauthorized
-        HTTP-->>Caller: 401 generic JSON error
-    else authenticated
-        HTTP->>Route: Request + clientId
-        Route->>DB: Tenant-scoped lookup/list/attempt query
-        DB-->>Route: Tenant-owned result or empty
-        Route-->>Caller: 200 result or generic 404
-    end
-```
-
-### 5.5 Outbound Delivery Contract (event egress)
+### 5.1 Outbound Delivery Contract (event egress)
 
 - `POST` to `destination_url` with headers: `x-webhook-signature: sha256=<hex HMAC-SHA256(secret, timestamp + '.' + body)>`, `x-webhook-timestamp: <unix seconds>`, `x-webhook-event-id: <system id>`, and the event `id` embedded in the body (FR-11/FR-12, A2). No request is ever dispatched unsigned (FR-13).
 
 ---
 
-### 5.6 API-Key Authentication Contract (WBS 3.1; FR-7–FR-10)
+### 5.2 Host-Owned Ingestion Identity Contract (WBS 3.4; FR-7–FR-10)
 
-`src/security/auth.ts` exports a factory that accepts an immutable configuration containing one non-empty `apiKey` and its non-empty `clientId`, and returns an authenticator accepting a candidate token or `undefined`. The factory computes and retains only the configured credential's SHA-256 digest. Each authentication call hashes the candidate (using an empty sentinel when absent) and compares the fixed-length digests with `crypto.timingSafeEqual`; there is no secret-length early return or direct secret equality comparison. Configuration errors fail during authenticator creation, before handling requests.
+The host creates the engine with one non-empty `clientId`. The embedded library accepts calls through its in-process methods and does not require an API key or authenticate an external caller. The host is responsible for controlling access to the process and to code that holds the engine instance; any external API exposed by a host must enforce its own authentication and authorization.
 
-The result is a discriminated union: success contains only the configured `clientId`; failure contains the common unauthorized status code `401`. Missing, malformed/absent, and wrong tokens share that failure shape. The authenticator never logs or returns credentials. The HTTP transport is responsible for extracting a Bearer or `x-api-key` value and translating the failure result to an HTTP response; the transport itself is not part of WBS 3.1.
+The engine binds the configured `clientId` to its instance. Ingestion input must reject caller-supplied identity fields, and the handler stamps the bound identity onto every persisted event. The same configured identity scopes idempotency and all event and attempt-history reads. The tenant identity is immutable for an engine instance; runtime client registration and per-tenant dispatch configuration remain deferred to v2.0.0.
 
-v1 configures a single API key/client identity pair; multi-key registries and per-tenant credential management are out of scope. The `clientId` returned on success is the only identity value downstream ingestion may use for tenant stamping. No retry, circuit breaker, or CORS behavior is part of this authentication contract.
+WBS 3.4 is pending. The current implementation still contains the earlier API-key authentication path, so it does not satisfy this target contract until that work is implemented and verified.
 
-### 5.7 Payload and Destination Validation Contract (WBS 3.2; NFR-S6, AC14)
+### 5.3 Payload and Destination Validation Contract (WBS 3.2; NFR-S6, AC14)
 
-`src/features/ingestion/ingestion.schema.ts` exports the strict Zod schema for the parsed request body and its inferred input type. It accepts only a non-empty `idempotency_key`, a recursive JSON `payload`, and an optional string `destination_url`; omitted destination URLs are resolved to configured `WEBHOOK_URL` by the later ingestion handler and that effective URL is subject to the same validation. Malformed JSON parsing remains the HTTP transport's responsibility. Tenant identity and timestamps are server-derived and are not accepted from the caller.
+`src/features/ingestion/ingestion.schema.ts` exports the strict Zod schema for ingestion input and its inferred type. It accepts only a non-empty `idempotency_key`, a recursive JSON `payload`, and an optional string `destination_url`; omitted destination URLs are resolved to configured `WEBHOOK_URL` by the ingestion handler and that effective URL is subject to the same validation. Tenant identity and timestamps are server-derived and are not accepted from the caller.
 
 `src/security/ssrf.ts` exports an asynchronous destination validator. It parses with the WHATWG `URL` implementation, requires `https:`, a hostname, and no username/password, and returns a discriminated validation result that contains no resolved addresses or raw resolver errors. Invalid syntax, unsupported protocols, embedded credentials, unsafe targets, empty DNS results, and resolver failures fail closed and map to one generic `422` destination error; schema violations map to `400`. Hostnames use Node's `lookup` with `{ all: true, verbatim: true }`; tests mock this DNS boundary with deterministic results. Validation opens no HTTP connection or socket to the destination.
 
@@ -305,20 +254,19 @@ IP literals are canonicalized by URL parsing and classified directly without DNS
 
 This preflight lookup is not an address pin. DNS can change between validation and connection, so WBS 5.2 must revalidate and bind the connection to a safe resolved address, and redirects must be disabled or every redirect target must receive the same validation. WBS 3.2 does not implement dispatch, TLS configuration, or redirect handling. Unit tests mock the DNS boundary and make no external DNS/network requests.
 
-### 5.8 Idempotent Ingestion Handler Contract (WBS 3.3; FR-1, FR-2, FR-18; AC1, AC2)
+### 5.4 Idempotent Ingestion Handler Contract (WBS 3.3 / 3.4; FR-1, FR-2, FR-8, FR-9, FR-18; AC1, AC2)
 
-`src/features/ingestion/ingestion.handler.ts` exports the application handler. It receives a `DatabaseAdapter`, an `ApiKeyAuthenticationResult`, an untrusted parsed request body (`unknown`), and the configured fallback `WEBHOOK_URL`. It does not parse raw JSON, extract headers, authenticate a token itself, register an HTTP route, or start a server. HTTP transport and embedded callers must use the same handler contract.
+`src/features/ingestion/ingestion.handler.ts` exports the application handler. It receives a `DatabaseAdapter`, the engine-bound `clientId`, untrusted input (`unknown`), and the configured fallback `WEBHOOK_URL`. It validates the input and uses the configured identity before persisting through the adapter.
 
 The handler processes input in this order:
 
-1. Return the common `401` unauthorized result immediately when authentication failed; do not validate destination DNS or call the adapter.
-2. Validate the parsed body with `ingestionRequestSchema.safeParse`. Reject unknown fields, caller-supplied identity, and malformed payloads with a generic `400 invalid_request` result that does not echo the payload or schema internals.
-3. Select the supplied `destination_url` or, only when omitted, configured `WEBHOOK_URL`; run the selected URL through `validateDestinationUrl`. A rejected caller-supplied destination returns generic `422 invalid_destination`. A rejected configured fallback returns generic `500 invalid_default_destination` because this is an engine configuration fault, not a client input fault. Both paths stop before persistence; resolver details and addresses are never included in results.
-4. Construct a `WebhookEvent` using `randomUUID()` for `id`, the authenticated `clientId`, the schema-validated idempotency key and payload, the canonical validated destination, empty metadata and event-specific headers, `status: 'pending'`, `attemptCount: 0`, null retry/lease fields, and one server-generated UTC timestamp for `createdAt` and `updatedAt`.
-5. Call `DatabaseAdapter.upsertEvent` once. The adapter's unique constraint and atomic upsert are the concurrency boundary; the handler performs no check-then-insert, in-memory lock, or second persistence write. A rejected adapter promise propagates unchanged; it is not converted to a success-shaped result. The future HTTP transport maps storage failures to `503`.
-6. Return `{ statusCode: 202, body: { id, idempotency_key, idempotent_replay, status: 'pending' } }` using the stored event's id/key and `idempotent_replay: !inserted`. On replay, return the existing event id and do not overwrite the accepted payload, destination, or other stored state. `status: 'pending'` is the ingestion acknowledgment shape required by FR-18; it is not a live-state read if the event has since advanced, and status queries remain authoritative.
+1. Validate the parsed input with `ingestionRequestSchema.safeParse`. Reject unknown fields, caller-supplied identity, and malformed payloads with a generic invalid-request result that does not echo the payload or schema internals.
+2. Select the supplied `destination_url` or, only when omitted, configured `WEBHOOK_URL`; run the selected URL through `validateDestinationUrl`. A rejected caller-supplied destination returns a generic invalid-destination result. A rejected configured fallback returns a generic invalid-default-destination result because this is an engine configuration fault. Both paths stop before persistence; resolver details and addresses are never included in results.
+3. Construct a `WebhookEvent` using `randomUUID()` for `id`, the engine-bound `clientId`, the schema-validated idempotency key and payload, the canonical validated destination, empty metadata and event-specific headers, `status: 'pending'`, `attemptCount: 0`, null retry/lease fields, and one server-generated UTC timestamp for `createdAt` and `updatedAt`.
+4. Call `DatabaseAdapter.upsertEvent` once. The adapter's unique constraint and atomic upsert are the concurrency boundary; the handler performs no check-then-insert, in-memory lock, or second persistence write. A rejected adapter promise propagates unchanged; it is not converted to a success-shaped result.
+5. Return an accepted application result containing the stored event's `id`, `idempotency_key`, `idempotent_replay: !inserted`, and pending status. On replay, return the existing event id and do not overwrite the accepted payload, destination, or other stored state. Pending status is the ingestion acknowledgment; status queries remain authoritative if the event has advanced.
 
-The handler result is a discriminated union: success (`202`), unauthorized (`401`), invalid request (`400`), invalid caller destination (`422`), or invalid configured fallback (`500`). Database failures reject rather than forming a handler result and are translated to `503` by the eventual transport boundary. No rate limiting, route implementation, raw-body parsing, logging framework, or dispatcher behavior is added by WBS 3.3.
+The handler result is a discriminated union: accepted, invalid request, invalid caller destination, or invalid configured fallback. There is no authentication or unauthorized result in the embedded ingestion contract. Database failures reject rather than forming a handler result. Rate limiting and external request parsing/authentication belong to a host that chooses to expose its own interface; WBS 3.3/3.4 do not add those transport concerns.
 
 ## 6. Key Flows
 
@@ -326,37 +274,32 @@ The handler result is a discriminated union: success (`202`), unauthorized (`401
 
 ```mermaid
 sequenceDiagram
-    actor Caller
-    participant Auth as Auth Middleware
+    actor Host as Host Application
+    participant Engine as Embedded Engine
     participant Handler as Ingestion Handler
     participant Schema as Request Schema
     participant Val as SSRF Validator
     participant DB as Database Adapter
-    Caller->>Auth: Authenticate supplied API key
-    Auth-->>Caller: Authentication result with clientId or unauthorized
-    Caller->>Handler: Parsed body + auth result + configured fallback URL
-    alt authentication failed
-        Handler-->>Caller: 401 unauthorized
-    else authenticated
-        Handler->>Schema: safeParse(body)
-        alt invalid request
-            Schema-->>Handler: validation failure
-            Handler-->>Caller: 400 invalid_request
-        else valid request
-            Schema-->>Handler: validated request
-            Handler->>Val: Validate supplied URL or configured fallback
-            alt supplied destination invalid
-                Val-->>Handler: invalid destination
-                Handler-->>Caller: 422 invalid_destination
-            else configured fallback invalid
-                Val-->>Handler: invalid default destination
-                Handler-->>Caller: 500 invalid_default_destination
-            else valid destination
-                Val-->>Handler: canonical validated URL
-                Handler->>DB: Atomic tenant/key upsert
-                DB-->>Handler: stored event + inserted flag
-                Handler-->>Caller: 202 {id, idempotency_key, idempotent_replay, status: pending}
-            end
+    Host->>Engine: enqueue(input)
+    Engine->>Handler: input + bound clientId + configured fallback
+    Handler->>Schema: safeParse(input)
+    alt invalid input
+        Schema-->>Handler: validation failure
+        Handler-->>Engine: invalid request result
+        Engine-->>Host: invalid request result
+    else valid input
+        Schema-->>Handler: validated input
+        Handler->>Val: Validate supplied URL or configured fallback
+        alt destination invalid
+            Val-->>Handler: invalid destination result
+            Handler-->>Engine: invalid destination result
+            Engine-->>Host: invalid destination result
+        else valid destination
+            Val-->>Handler: canonical validated URL
+            Handler->>DB: Atomic upsert with bound clientId
+            DB-->>Handler: stored event + inserted flag
+            Handler-->>Engine: accepted result
+            Engine-->>Host: accepted result
         end
     end
 ```
@@ -404,14 +347,14 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 ### 7.1 Security and Privacy
 
-- **Authentication (NFR-S1):** `src/security/auth.ts` compares equal-length SHA-256 digests with `crypto.timingSafeEqual`, including absent credentials via a fixed sentinel; returns a uniform unauthorized result mapped to `401`, and exposes the configured `clientId` only after successful verification (mitigates R3; AC7, AC12).
+- **Host-owned access and identity (NFR-S1):** the library accepts ingestion through in-process engine methods without per-call credentials. The host controls access to the process and engine instance; the engine stamps its immutable configured `clientId` and rejects caller-supplied identity (mitigates R3; AC7, AC12).
 - **Delivery integrity and replay defense (NFR-S2):** HMAC SHA-256 over `timestamp.body` with the configured secret; timestamp material defeats replay of stale captures.
 - **Tenant isolation (NFR-S7):** non-enumerable UUIDv4 ids plus mandatory `client_id` scoping on every read; cross-tenant attempts return `404` (BOLA/IDOR prevention).
 - **SSRF protection (NFR-S6, AC14):** URL allow-policy enforcing HTTPS, resolving and rejecting loopback, RFC 1918, link-local, and `169.254.169.254` metadata targets before any socket is opened.
 - **SSRF preflight limits:** WBS 3.2 fails closed for unsafe literal/resolved IPv4/IPv6 addresses, malformed/non-HTTPS URLs, credentials in URLs, empty DNS results, and resolver failures. The validator does not dispatch or pin a socket; WBS 5.2 must revalidate/pin before connecting and validate redirect targets or disable redirects to mitigate DNS rebinding.
 - **SQL safety (NFR-S4):** parameterized/prepared statements exclusively in the SQLite adapter.
-- **Secret hygiene (NFR-S3):** env-only secrets; structured logger redactors for `Authorization`, `x-api-key`, HMAC secret, and payloads (mitigates R6).
-- **Rate limiting (NFR-S5):** basic fixed window on ingestion protects the embedded DB.
+- **Secret hygiene (NFR-S3):** host-supplied HMAC and database secrets are not stored in the event database or emitted in logs; structured redaction covers sensitive host-provided values, HMAC secrets, and payloads (mitigates R6).
+- **Rate limiting (NFR-S5):** external rate limiting is the host's responsibility if it exposes ingestion to callers; the embedded library provides no external rate-limiting interface in v1.
 - **Privacy:** payloads are operator-supplied business data; storage is local to the configured database; no third-party data flows.
 
 ### 7.2 Failure Modes and Recovery
@@ -431,9 +374,9 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 ## 8. Observability, Performance, and Accessibility
 
-- **Observability (G7):** structured JSON logs (`LOG_LEVEL`) for every lifecycle transition — claim, dispatch, attempt outcome, state change, recovery sweep. Full attempt audit queryable via `GET /webhooks/:id/attempts`. Log-based observability only in v1; Prometheus/OTel export deferred to v1.1.
+- **Observability (G7):** structured JSON logs (`LOG_LEVEL`) for every lifecycle transition — claim, dispatch, attempt outcome, state change, recovery sweep. Attempt history is available through tenant-scoped programmatic queries. Log-based observability only in v1; Prometheus/OTel export deferred to v1.1.
 - **Performance (G6, NFR-P1–P4):** p95 ingestion < 50 ms on local SQLite; claim poll interval configurable with idle CPU < 10%; batch claiming (default batch size 10) amortizes transaction overhead; ≥ 200 events/s sustained ingestion target.
-- **Compatibility and accessibility:** backend library — UI accessibility standards do not apply; accessibility of concern is API ergonomics (consistent error shapes, documented contracts). Compatibility: Node ≥ 24.x, TypeScript strict, SQLite in v1.0; PostgreSQL/MySQL adapters deferred to v2.0; embedded and standalone modes (NFR-C4).
+- **Compatibility and accessibility:** backend library — UI accessibility standards do not apply. Compatibility: Node ≥ 24.x, TypeScript strict, SQLite in v1.0; PostgreSQL/MySQL adapters deferred to v2.0; embedded package mode (NFR-C4).
 
 ---
 
@@ -444,7 +387,7 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 | Layer              | Tooling                        | Coverage target                                                                     |
 | ------------------ | ------------------------------ | ----------------------------------------------------------------------------------- |
 | Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, timing-safe auth     |
-| Integration        | Vitest + mock endpoints        | Handler validation/result contract, ingestion idempotency (AC1/AC2), retry lifecycle (AC4–AC6), restart recovery (AC11) |
+| Integration        | Vitest + mock endpoints        | Handler validation/result contract, configured tenant identity and ingestion idempotency (AC1/AC2/AC7), retry lifecycle (AC4–AC6), restart recovery (AC11) |
 | SQLite concurrency | Vitest × SQLite                | ≥ 100 parallel claims with zero double-claims (AC3); ≥ 1,000 same-tenant duplicate ingestion submissions with one row and stable id (AC2) |
 | Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
 | Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
@@ -480,8 +423,8 @@ the database directory.
 
 ### 9.2 Migration and Deployment
 
-- Embedded deployment imports the public npm package into a host Node.js process; `start()` applies migrations before scheduler activation and `stop()` drains or safely releases work. A standalone HTTP service needs its own runnable server composition and is optional; the library import is not a process entry point.
-- Embedded factory configuration (D4) is supplied by the host: SQLite location, default destination, delivery HMAC secret, configured client identity, and worker/retry settings. `PORT` and HTTP API-key settings apply only when the host also enables the optional HTTP transport; v1.0 has no PostgreSQL/MySQL connection settings.
+- Embedded deployment imports the public npm package into a host Node.js process; `start()` applies migrations before scheduler activation and `stop()` drains or safely releases work. The library import is not a process entry point.
+- Embedded factory configuration (D4) is supplied by the host: SQLite location, default destination, delivery HMAC secret, configured client identity, and worker/retry settings; v1.0 has no API-key ingestion credential or PostgreSQL/MySQL connection settings.
 - Rollback strategy: forward-only migrations; rollback is a previous release binary against a compatible schema (additive-only changes in v1.x).
 - WBS traceability: design covers WBS 1.0–8.0; the implementation phase begins only after design-checkpoint approval per master rules.
 
@@ -509,7 +452,7 @@ the database directory.
 
 ## 11. Feature-Based Directory Layout and Source Organization
 
-To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: each business capability (ingestion, scheduler, delivery, query) owns its routes, handlers, schemas, and tests, while cross-cutting concerns (adapters, contracts, security primitives, configuration, logging) live in shared layers that features depend on — never the reverse.
+To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: each business capability (ingestion, scheduler, delivery, query) owns its handlers, schemas, and tests, while cross-cutting concerns (adapters, contracts, security primitives, configuration, logging) live in shared layers that features depend on — never the reverse.
 
 ### 11.1 Directory Structure
 
@@ -518,7 +461,6 @@ src/
 ├── index.ts                   # Public npm package root exports (WBS 6.2)
 ├── features/                  # Business capabilities (one folder per feature)
 │   ├── ingestion/             # WBS 3.3 — idempotent event ingestion
-│   │   ├── ingestion.routes.ts        # POST /webhooks route registration
 │   │   ├── ingestion.handler.ts       # Atomic upsert handler, 202 response shape
 │   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
 │   │   ├── ingestion.schema.test.ts   # Strict parsed-body schema tests (WBS 3.2)
@@ -538,7 +480,6 @@ src/
 │   │   ├── delivery.classify.test.ts  # HTTP result policy and retry exhaustion
 │   │   └── delivery.test.ts           # Retry lifecycle, signatures (AC4–AC8)
 │   └── query/                 # WBS 6.x — tenant-scoped status & attempt reads
-│       ├── query.routes.ts            # GET /webhooks, /:id, /:id/attempts
 │       ├── query.service.ts           # client_id-scoped queries (NFR-S7, FR-19)
 │       ├── query.schema.ts            # Filter/pagination validation
 │       └── query.test.ts              # Isolation tests (404 on cross-tenant)
@@ -556,14 +497,10 @@ src/
 │   │       ├── sqlite/                # Versioned SQLite .sql files
 │   └── storage.test.ts                # SQLite schema and persistence tests
 ├── security/                  # Cross-cutting security primitives
-│   ├── auth.ts                        # Constant-time API-key middleware (NFR-S1)
 │   ├── ssrf.ts                        # URL resolver + private/metadata guard (WBS 3.2 / AC14)
-│   ├── ratelimit.ts                   # Fixed-window ingestion limiter (NFR-S5)
-│   ├── auth.test.ts                   # API-key authentication contract tests (AC7)
 │   ├── ssrf.test.ts                   # Deterministic IPv4/IPv6 and DNS boundary tests (AC14)
-│   └── security.test.ts               # Shared security and isolation suites (AC12)
-├── app/                       # Composition & transport roots
-│   ├── http.server.ts                 # HTTP server factory; does not own process startup
+│   └── security.test.ts               # Tenant identity and isolation suites (AC7, AC12)
+├── app/                       # Composition root
 │   ├── embedded.ts                    # Public createWebhookEngine factory implementation
 │   ├── engine.ts                      # Feature wiring: migrations, scheduler, delivery, APIs
 │   └── lifecycle.ts                   # Graceful engine start/stop and claim cleanup
@@ -572,7 +509,7 @@ src/
 │   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
 │   └── validation.ts                  # Shared schema validators
 └── config/                    # Configuration surface
-    ├── env.ts                         # Env parsing: PORT, DATABASE_URL, secrets (D4)
+    ├── env.ts                         # Env parsing: DATABASE_URL, secrets (D4)
     ├── engine.config.ts               # EngineConfig defaults & validation (R5)
     └── config.test.ts                 # Fallback-to-defaults tests
 ```
@@ -582,8 +519,8 @@ src/
 - **features → core, storage, security, shared, config:** allowed. Features never import each other directly; cross-feature interaction goes through `core/ports.ts` interfaces (e.g., the scheduler consumes `DatabaseAdapter` contracts, not ingestion internals).
 - **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
 - **storage** is the only layer that imports database drivers (`better-sqlite3` in v1.0); all statements remain parameterized (NFR-S4). PostgreSQL/MySQL drivers are deferred to v2.0.
-- **security** is the only layer implementing auth, SSRF, and rate-limit primitives; features call it as middleware, keeping FR-7/FR-9 enforcement consistent across routes.
-- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). `src/index.ts` is the public npm import barrel and re-exports `createWebhookEngine` from `app/embedded.ts`; `app/http.server.ts` only creates an HTTP server and does not listen or run a process. A standalone service runner, if retained, is a separate entry point and is not required for embedding the package.
+- **security** contains destination validation and other security primitives; the host owns any external caller authentication or rate limiting, while engine composition binds the configured tenant identity.
+- **app/** is the only place that instantiates concrete adapters and wires features together (composition root). `src/index.ts` is the public npm import barrel and re-exports `createWebhookEngine` from `app/embedded.ts`.
 
 ### 11.3 Rationale
 

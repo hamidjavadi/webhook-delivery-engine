@@ -3,13 +3,13 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.1, 3.2, 3.3, 4.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 7.1, and 7.2: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.2, 3.3, 3.4, 4.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 7.1, and 7.2: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
-  atomic claim, authentication, ingestion input validation and SSRF URL
-  validation, atomic idempotent ingestion, poll-cycle coordination, outbound
+  atomic claim, configured tenant identity, ingestion input validation and
+  SSRF URL validation, atomic idempotent ingestion, poll-cycle coordination, outbound
   HTTP dispatch/backoff, result classification, attempt recording, and the
-  authenticated REST transport for ingestion, tenant-scoped event queries,
-  pagination, and attempt history. WBS 7.1 adds repository-wide and
+  embedded engine's programmatic ingestion and tenant-scoped query methods.
+  WBS 7.1 adds repository-wide and
   critical-path coverage measurement plus a controlled local ingestion p95
   benchmark; it does not change runtime behavior. WBS 7.2 adds concurrent
   multi-tenant idempotency and independent-process SQLite claim stress checks;
@@ -40,11 +40,13 @@ only strictly expired `processing` leases, clears lease fields, schedules
 retry at `now + 10000 ms`, rejects invalid inputs without writes, and leaves
 active, cutoff-equal, and non-processing rows unchanged. Poll-loop invocation
 is deferred to WBS 4.1.
-For Task 3.1, verify a valid configured API key resolves only to its configured
-`clientId`; absent, invalid, and unequal-length credentials produce a uniform
-unauthorized result. Confirm SHA-256 pre-hashing plus
-`crypto.timingSafeEqual`, and verify secrets are never included in results,
-errors, or logs.
+WBS 3.1 API-key authentication is superseded and is not part of the current v1
+test scope; its completed test results remain below as historical evidence.
+For Task 3.4, verify engine creation requires no API key, binds the configured
+`clientId`, and stamps it onto accepted events. Reject caller-supplied tenant
+identity and confirm query methods remain scoped to that configured identity.
+Verify the host boundary is documented as responsible for access control if it
+exposes ingestion to external callers.
 For Task 3.2, verify the ingestion schema accepts only `idempotency_key`,
 JSON `payload`, and optional `destination_url`; malformed/missing fields and
 unknown keys are rejected. Verify only absolute HTTPS URLs without credentials
@@ -54,17 +56,17 @@ link-local, unspecified, multicast, reserved, IPv4-mapped, and cloud metadata
 addresses, including mixed public/private DNS answers. Resolver tests use
 deterministic mocked DNS answers; no external DNS or network is contacted.
 
-For Task 3.3, verify the handler requires successful authentication and a
-validated parsed request, derives tenant identity only from the auth result,
-uses the configured `WEBHOOK_URL` only when the optional destination is
+For Task 3.3/3.4, verify the handler accepts validated parsed input and uses
+only the engine-bound tenant identity. Verify it uses the configured
+`WEBHOOK_URL` only when the optional destination is
 omitted, and applies the same SSRF validation to that fallback. Verify new
-events return the complete 202 application result and duplicate submissions
+events return the documented accepted programmatic result and duplicate submissions
 return the same stored event id with replay=true without overwriting the
 original event. Include independent tenant keys, concurrent calls to the real
 SQLite adapter at the PRD threshold (at least 1,000 submissions across
-multiple tenant/key pairs), invalid
-auth/schema/destination cases, and propagated storage errors. WBS 3.3 remains
-transport-independent; its HTTP mapping is verified under WBS 6.1. An invalid
+multiple tenant/key pairs), invalid schema/destination cases, caller-supplied
+identity attempts, and propagated storage errors. WBS 3.3/3.4 remain part of
+the embedded library contract. An invalid
 configured fallback must return a generic 500 configuration error and leave
 the adapter untouched.
 
@@ -92,20 +94,13 @@ updates against a real SQLite adapter. Verify attempt ordinals use the claim's
 reserved `attemptCount`, error descriptions do not expose transport internals,
 and persisted response snippets stay within 1,024 UTF-8 bytes. Worker failures
 are reported through the scheduler callback seam.
-For Task 6.1, exercise the Node HTTP server over loopback with a real temporary
-SQLite adapter. Verify credential extraction and authentication, 202 ingestion
-mapping, malformed JSON and filter errors, status filtering, cursor pagination,
-system-id and idempotency-key lookup, attempt serialization, generic storage
-errors, and identical 404 responses for unknown and cross-tenant records. Use
-a public IP literal in ingestion fixtures so no external DNS or destination
-network request occurs.
-
 ## Strategy and Layers (Unit / Integration / E2E)
 
 ### WBS 7.1 Execution Plan (Issue #64)
 
 - Reconcile executable source coverage against WBS 7.1, including ingestion,
-  atomic SQLite claims, scheduler/backoff, authentication, HMAC, and SSRF.
+  configured tenant identity/isolation, atomic SQLite claims,
+  scheduler/backoff, HMAC, and SSRF.
 - Add only deterministic tests for uncovered branches or behavior, following
   existing module and integration-test conventions. Preserve real SQLite
   integration at persistence boundaries and avoid external network calls.
@@ -136,7 +131,8 @@ network request occurs.
 - **Final tests:** `pnpm test --coverage` passed (21 files, 397 tests).
 - **Overall coverage:** 98.52% lines/statements, 99.16% functions, and 95.71%
   branches. The repository's 80% overall gate passes.
-- **Critical paths:** Ingestion handler/schema/routes, authentication, HMAC,
+- **Critical paths (historical baseline):** Ingestion handler/schema,
+  authentication, HMAC,
   and backoff are 100% across all four coverage dimensions. SSRF is 98.68%
   lines/statements, 98.46% branches, and 100% functions. Scheduler is 95.89%
   lines/statements, 96% branches, and 100% functions. SQLite adapter aggregate
@@ -144,6 +140,9 @@ network request occurs.
   the focused `claimDueEvents` method and `compareClaimedEvents` comparator
   each report 100% lines, statements, functions, and branches through
   `node scripts/check-claim-coverage.mjs`.
+- These measurements predate the v1 scope change. WBS 7.1 coverage and the
+  ingestion benchmark must be rerun after WBS 3.4 replaces the authentication
+  path with configured tenant identity/isolation.
 - **Ingestion p95:** `pnpm benchmark:ingestion` measured 500 requests per round
   after 100 warm-ups. Nearest-rank p95 values were 0.3059 ms, 0.2477 ms, and
   0.2283 ms; median p95 was 0.2477 ms against the <50 ms target. The fetch
@@ -252,17 +251,14 @@ network request occurs.
   runs pass.
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
-  Vitest assertions in `tests/core/contracts.test.ts`; API-key authentication
-  is exercised by `src/security/auth.test.ts`.
+  Vitest assertions in `tests/core/contracts.test.ts`. Existing API-key tests
+  are historical and will be removed or replaced as part of WBS 3.4.
 - **Integration:** Node's built-in `node:sqlite` continues to verify the runner;
   better-sqlite3 adapter tests use isolated temporary on-disk databases with
   the native driver and real schema. No external DB service or credentials are
   required.
-- **HTTP integration:** The WBS 6.1 server factory is exercised over loopback
-  against a real temporary SQLite database. This verifies the wire contract
-  without external network services. WBS 3.3 handler tests remain separate.
-- **Full service E2E:** Not applicable yet; the repository has no runnable
-  composition entry point or integrated poll/dispatch lifecycle.
+- **Host-application E2E:** No separate host-application E2E suite is
+  configured; package integration tests cover the embedded engine lifecycle.
 
 ## Test Cases and Acceptance-Criteria Traceability
 
@@ -289,22 +285,19 @@ network request occurs.
 | Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
 | Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
 | Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
-| Valid configured API key resolves its configured `clientId` | WBS 3.1 authentication unit tests |
-| Missing, invalid, and unequal-length API keys produce the same unauthorized result without exposing credentials | WBS 3.1 authentication unit tests |
-| Credential comparison uses equal-length SHA-256 digests and `crypto.timingSafeEqual` | WBS 3.1 authentication implementation and tests |
+| Engine creation requires no API key and binds the configured `clientId` to ingestion and query methods | WBS 3.4 engine and ingestion tests (pending) |
+| Accepted events use the configured tenant identity; caller-supplied identity fields are rejected | WBS 3.4 handler and integration tests (pending) |
+| Cross-tenant/unknown event lookups return the same not-found result within the configured tenant scope | WBS 3.4 query and SQLite integration tests (pending) |
 | Ingestion body accepts exactly the documented fields and JSON-compatible payload | WBS 3.2 schema unit tests |
 | Destination URL rejects non-HTTPS, malformed, or credential-bearing URLs | WBS 3.2 URL validation tests |
 | Unsafe IPv4/IPv6 literals and any unsafe DNS answer are rejected, including mapped and mixed DNS results | WBS 3.2 SSRF unit tests |
-| Handler accepts only successful authentication and strict schema output, using authenticated `clientId` as tenant | WBS 3.3 handler unit tests |
+| Handler accepts strict schema output and uses only the engine-bound configured `clientId` as tenant | WBS 3.3/3.4 handler unit tests |
 | Omitted destination selects configured `WEBHOOK_URL`, then undergoes the same SSRF validation; supplied safe destination is preserved | WBS 3.3 handler unit tests |
 | Invalid or unsafe configured fallback returns a generic 500 configuration error without persistence | WBS 3.3 handler unit tests |
-| New event returns 202 result with generated id, key, replay=false, and pending status; duplicate returns same id with replay=true and does not overwrite the persisted event | WBS 3.3 handler/SQLite integration tests |
+| Programmatic ingestion returns generated id, key, replay flag, and pending status; duplicate returns the same id with replay=true and does not overwrite the persisted event | WBS 3.3/3.4 handler/SQLite integration tests |
 | At least 1,000 concurrent submissions across tenant/key pairs yield exactly one stored row and stable replay identity per pair | WBS 3.3 and 7.2 SQLite concurrency integration tests |
-| Authentication, schema, destination, and storage failures are surfaced without a successful result or partial event write | WBS 3.3 handler/SQLite integration tests |
+| Invalid schema, destination, and storage cases are surfaced without a successful result or partial event write | WBS 3.3/3.4 handler/SQLite integration tests |
 | Every poll cycle recovers stale leases before atomically claiming a configured-size batch and passes only claimed events to the worker seam | WBS 4.1 scheduler unit and SQLite integration tests |
-| HTTP routes authenticate requests and map ingestion results to JSON/status codes | `src/app/http.server.test.ts` |
-| Event listing, detail lookup, and attempt history are tenant-scoped and return generic 404 for unknown/foreign records | `src/app/http.server.test.ts` and SQLite adapter integration tests |
-| Invalid JSON, query filters, and page limits produce generic 400 responses | `src/app/http.server.test.ts` |
 | Empty queue cycles throttle for the configured poll interval; transient adapter failures are reported and polling resumes | WBS 4.1 scheduler unit tests |
 | Idle scheduler CPU overhead stays below 10% in the documented local benchmark | WBS 4.1 performance test |
 | Attempt append and event transition commit or roll back atomically | SQLite adapter integration tests |
@@ -343,7 +336,7 @@ testing do not apply to these storage contracts.
 
 The repository-wide thresholds remain 80% overall and 95% on critical paths.
 Coverage applies to executable runner, adapter, bootstrap, and security code;
-authentication and other critical paths target at least 95% coverage while
+configured tenant identity/isolation and other critical paths target at least 95% coverage while
 repository-wide coverage remains at least 80%. SQL declarations are not treated
 as executable source. Record measured results or report a tooling limitation
 without treating an unmeasured threshold as met.
@@ -560,7 +553,13 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Go/No-Go:** Go for WBS Task 2.7's approved SQLite adapter recovery scope;
   the scheduler integration remains outside this task.
 
-### Task 3.1 Results
+### Task 3.1 Results — Superseded API-Key Authentication (Historical)
+
+These results document the previously implemented API-key authentication
+contract and its tests. That contract is superseded for v1; WBS 3.4 removes the
+API-key path and must add replacement tenant-identity coverage. The results
+below are retained as historical execution evidence, not as current v1
+acceptance evidence.
 
 - **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
 - **TDD red check:** `pnpm exec vitest run src/security/auth.test.ts` failed
@@ -579,12 +578,11 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Build/type-check/lint:** `pnpm build`,
   `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
 - **Formatting/diff:** Prettier check and `git diff --check` passed.
-- **Open bugs/limitations:** No authentication defects identified. This task
-  provides an auth primitive, not a server or header-extraction middleware;
-  future HTTP routes must map its unauthorized result to an actual HTTP 401
-  and must use the returned `clientId` for tenant scoping.
-- **Go/No-Go:** Go for WBS Task 3.1 authentication primitive; route integration
-  remains in downstream API work.
+- **Open bugs/limitations:** No defects were identified in the historical
+  authentication primitive. The primitive is outside current v1 scope and its
+  removal is pending under WBS 3.4.
+- **Go/No-Go:** Historical go for WBS Task 3.1 only; not a current v1 scope
+  approval.
 
 ### Task 3.2 Results
 
@@ -610,9 +608,7 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Formatting/diff:** Prettier checks and `git diff --check` passed.
 - **Open risks/limitations:** The validator performs preflight DNS validation,
   not connection pinning. WBS 5.2 must revalidate/pin the resolved address and
-  disable redirects or validate each redirect before dispatch. The HTTP
-  transport remains responsible for malformed raw JSON parsing and mapping
-  schema/destination failures to HTTP 400/422.
+  disable redirects or validate each redirect before dispatch.
 - **Go/No-Go:** Go for the WBS 3.2 validator and request-schema scope. No
   end-to-end ingestion or dispatch claim is made; those integrations are
   downstream work.
@@ -624,7 +620,8 @@ completion, append actual command results and the Go/No-Go decision here.
   ingestion handler module did not exist. After implementation, all focused
   handler tests passed, including the real-SQLite duplicate-submission test.
 - **Final tests:** `pnpm exec vitest run --coverage` passed (10 files, 118
-  tests). The handler suite verifies authentication and schema short-circuits,
+  tests). Under the former scope, the handler suite verified authentication
+  and schema short-circuits,
   supplied and fallback destination validation, generated event fields, new
   event and replay responses, storage error propagation, tenant isolation, and
   1,000 concurrent duplicate submissions across two SQLite adapter instances.
@@ -634,12 +631,11 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Build/type-check/lint:** `pnpm run build`,
   `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm run lint` passed.
 - **Formatting/diff:** Prettier checks and `git diff --check` passed.
-- **Limitations:** This task implements the transport-independent application
-  handler only. HTTP routes, raw-body parsing, and wire-level E2E tests remain
-  downstream work.
-- **Go/No-Go:** Go for WBS 3.3. Authentication, validation, fallback
-  destination handling, and atomic idempotent persistence are verified; no
-  HTTP transport or dispatch behavior is claimed.
+- **Limitations:** This task's results include the former authenticated-handler
+  contract. WBS 3.4 must remove that dependency and verify host-configured
+  identity; raw request parsing remains outside the product scope.
+- **Go/No-Go:** Historical go for the WBS 3.3 implementation under its former
+  contract. Current v1 identity behavior remains pending WBS 3.4.
 
 ### Task 5.4 Results
 
@@ -665,36 +661,6 @@ completion, append actual command results and the Go/No-Go decision here.
 - **Open bugs:** None found in the WBS 5.4 implementation. Full-repository
   production-source build validation passed.
 - **Go/No-Go:** Go for WBS 5.4 behavior, coverage, lint, and production build.
-
-### Task 6.1 Results
-
-- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; temporary
-  on-disk SQLite databases using better-sqlite3.
-- **TDD red check:** The HTTP integration suite initially failed to load the
-  missing `http.server.js` module. After implementation, all 11 focused HTTP
-  integration tests passed against the Node server and real SQLite adapter.
-- **Final tests:** `pnpm exec vitest run --coverage` passed (18 files, 370
-  tests). HTTP coverage includes API-key extraction, malformed credentials,
-  ingestion and readback, cursor pagination, status filtering, attempt history,
-  tenant isolation, malformed inputs, unsupported paths/methods, and generic
-  storage failure responses. No external DNS or destination calls were made.
-- **Coverage:** 97.77% overall lines/statements, 98.97% functions, and 94.63%
-  branches. `src/app/http.server.ts` measured 100% in all dimensions;
-  `src/features/ingestion/ingestion.routes.ts` measured 100% in all dimensions;
-  `src/features/query/query.routes.ts` measured 96.87% lines/statements,
-  95.74% branches, and 100% functions. New critical route thresholds are
-  enforced by Vitest.
-- **Build/type-check/lint:** strict TypeScript compilation and migration asset
-  copy passed using the local toolchain; `pnpm lint` passed with zero warnings.
-  Two `pnpm build` attempts stalled without output and were interrupted; the
-  package script itself was therefore not verified.
-- **Formatting/diff:** Prettier check and `git diff --check` passed.
-- **Open limitations:** The HTTP server factory is available, but the
-  repository still has no runnable composition entry point or integrated
-  scheduler/dispatch lifecycle. WBS 6.1 was merged in PR #56 on October 23,
-  2026; that endpoint task does not claim the complete service is deployable.
-- **Go/No-Go:** Go for WBS 6.1 endpoint behavior and tenant isolation. WBS 6.2
-  adds the public package and embedded runtime composition described below.
 
 ### Task 6.2 Implementation Checkpoint
 
@@ -726,8 +692,7 @@ completion, append actual command results and the Go/No-Go decision here.
   pnpm 12 required native build-script approval for `better-sqlite3`, which is
   documented for consumers. No registry publish was performed.
 - **Open work:** Changes are awaiting review before commit/PR. Public registry
-  publication remains a separate release action. The embedded package does not
-  provide a standalone server runner; the host owns listeners and signals.
+  publication remains a separate release action.
 - **Go/No-Go:** Go for implementation review and PR preparation. Do not publish
   until the release process is separately approved.
 

@@ -12,6 +12,11 @@ Hostname validation must account for every DNS answer, not only the first
 address. A preflight DNS lookup by itself cannot prevent DNS rebinding between
 validation and a later connection.
 
+In v1, the host application submits events through the embedded library's
+programmatic interface. This decision covers destination safety regardless of
+whether the URL came from ingestion input or the host-configured fallback; it
+does not define an external ingestion endpoint or caller authentication.
+
 ## Decision Factors
 
 - Reject unsafe destinations before any HTTP request or destination socket is
@@ -43,7 +48,9 @@ without DNS, and resolve all other hostname A/AAAA answers. Reject the URL if
 any result is unsafe or if resolution fails or returns no addresses. Compare
 against explicit special-use IPv4/IPv6 CIDR ranges, including IPv4-mapped IPv6
 handling. Return a generic validation result without exposing addresses or
-resolver errors. Tests mock the DNS boundary.
+resolver errors. Apply the same validation policy to an optional destination
+provided with an ingestion call and to the host-configured fallback. Tests mock
+the DNS boundary.
 
 This is a preflight guard, not a connection pin. WBS 5.2 must re-resolve and
 bind the outbound connection to a validated address, and either disable
@@ -67,4 +74,4 @@ redirects or validate every redirect target before following it.
   `src/features/ingestion/ingestion.schema.ts`.
 - Keep redirect/address pinning assigned to WBS 5.2.
 - References: `docs/01-plan/PRD.md` (NFR-S6, AC14), `docs/01-plan/scope.md`,
-  `docs/01-plan/WBS.md` (3.2), and `docs/02-design/SDD.md` (§5.7, §7.1).
+  `docs/01-plan/WBS.md` (3.2, 3.3, 3.4), and `docs/02-design/SDD.md` (§5.3, §7.1).

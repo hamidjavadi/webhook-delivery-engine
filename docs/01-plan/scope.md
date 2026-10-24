@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Purpose
 
-The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HTTP service designed to deliver outgoing HTTP webhooks with guaranteed durability, strict idempotency, bounded exponential backoff, and full execution observability without external message brokers (such as Redis, Kafka, or RabbitMQ).
+The **Webhook Retry Engine** is an embeddable Node.js library designed to deliver outgoing HTTP webhooks with guaranteed durability, strict idempotency, bounded exponential backoff, and full execution observability without external message brokers (such as Redis, Kafka, or RabbitMQ).
 
 ---
 
@@ -18,7 +18,7 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 ### 2.1 Persistence & Data Schema
 
 - **Dual-Table Schema:**
-  - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, authenticated `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
+  - `webhook_events`: Durable queue holding system-generated non-enumerable event `id` (PK, UUIDv4/UUIDv7), client-supplied `idempotency_key`, host-configured `client_id`, destination URL, payload, event status (`pending`, `processing`, `delivered`, `retry`, `failed`), attempt count, next retry timestamp, and worker claim lease metadata (`locked_at`, `locked_by`).
   - `webhook_event_attempts`: Append-only audit log recording event foreign key (`event_id`), attempt ordinal, attempt timestamp, HTTP status codes, latencies, response body snippets (bounded to ≤ 1 KB), error descriptions, and execution outcomes (`success`, `retry_scheduled`, `exhausted`). `exhausted` denotes a terminal unsuccessful attempt, whether caused by a non-retryable response or reaching `maxAttempts`.
 - **Database Adapter:** Implement the canonical `DatabaseAdapter` contract using `better-sqlite3`; enable WAL and `busy_timeout=5000`, parameterize all SQL, and preserve idempotency, tenant-scoped reads, worker lease ownership, and atomic attempt/state transitions. PostgreSQL and MySQL are deferred to v2.0.
 - **Atomic Claim Mechanism:**
@@ -29,10 +29,10 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 ### 2.2 Core Ingestion & Delivery Engine
 
 - **Idempotent Ingestion & Tenant Isolation:**
-  - System-generated cryptographically secure `id` assigned per event; client supplies only `idempotency_key` and payload.
+  - System-generated cryptographically secure `id` assigned per event; callers supply `idempotency_key` and payload, may optionally provide a destination URL, and cannot supply or override `client_id`.
   - Per-tenant idempotency enforced via `UNIQUE(client_id, idempotency_key)` constraint.
   - SQLite single-statement atomic upsert (`INSERT ... ON CONFLICT DO NOTHING`).
-  - Replay detection on HTTP `202 Accepted` responses, returning both system `id` and `idempotency_key` along with an `idempotent_replay: true|false` indicator without duplicate queueing.
+  - Programmatic replay result returns both system `id` and `idempotency_key` along with an `idempotent_replay: true|false` indicator without duplicate queueing.
 - **Delivery & Retry Policy:**
   - Strictly at-least-once delivery semantics; consumers deduplicate using the system-generated event `id` supplied in delivery headers and body.
   - Bounded exponential backoff with full jitter formula: `next_retry_at = now + random(0, min(base * 2^(attempt - 1), capMs))`.
@@ -41,27 +41,22 @@ The **Webhook Retry Engine** is an embeddable Node.js library and lightweight HT
 
 ### 2.3 Security & Protection
 
-- **Constant-Time Ingestion Authentication & Access Control:**
-  - v1 authenticates one configured API key associated with one configured `clientId`; key registries and per-tenant key management are out of scope.
-  - The embedded engine binds one `clientId` and one delivery HMAC secret at creation. Do not run multiple tenant configurations against the same SQLite database in v1: schedulers claim due events across tenants and dispatch uses the engine instance's HMAC secret.
-  - Ingestion endpoints secured via Bearer token / API Key using `crypto.timingSafeEqual` over equal-length derived/hashed buffers with no early exits to prevent timing attacks.
-  - Authenticated identity resolved to `client_id` and stamped onto all ingested event rows.
+- **Host-Owned Ingestion Access and Identity:**
+  - v1 ingestion is called programmatically by the host from the same process; the library does not require an API key or provide external caller authentication.
+  - The host controls access to the process and engine instance. The engine binds one `clientId` and one delivery HMAC secret at creation and stamps that configured identity onto all ingested event rows; ingestion input cannot override it.
+  - Do not run multiple tenant configurations against the same SQLite database in v1: schedulers claim due events across tenants and dispatch uses the engine instance's HMAC secret.
 - **Tenant Data Isolation & BOLA/IDOR Prevention:**
-  - Strict tenant boundary enforcement across all read/query endpoints; database queries scoped strictly by authenticated `client_id` (`WHERE id = :id AND client_id = :authClientId`). Unauthorized access attempts yield HTTP `404 Not Found`.
+  - Strict tenant boundary enforcement across all read/query operations; database queries scoped strictly by configured `client_id` (`WHERE id = :id AND client_id = :configuredClientId`). Unknown and cross-tenant records return the same not-found result.
 - **Cryptographic Delivery Signing:**
   - Outbound delivery payload signed using HMAC SHA-256 with timestamp (`timestamp.body`) to prevent replay attacks, transmitted via `x-webhook-signature` and `x-webhook-timestamp` headers.
 - **SSRF Protection:**
   - Validate the documented ingestion request schema and accept only absolute HTTPS destination URLs without credentials.
   - Resolve hostnames before dispatch and reject unsafe IPv4/IPv6 results, including loopback, private, link-local, unspecified, multicast, reserved, IPv4-mapped private addresses, and cloud metadata endpoints. Revalidate/pin resolved destinations at connection time in the dispatcher to mitigate DNS rebinding.
 
-### 2.4 API & Observability
+### 2.4 Programmatic Interface & Observability
 
-- **REST Endpoints:**
-  - `POST /webhooks`: Ingest new webhook event (accepts `idempotency_key`, `payload`, optional `destination_url` with fallback to configured `WEBHOOK_URL`).
-  - `GET /webhooks`: List events filtered by `status`, scoped to caller's `client_id`.
-  - `GET /webhooks/:id`: Fetch current event status and delivery metadata by system `id` or `idempotency_key`, scoped to caller's `client_id`.
-  - `GET /webhooks/:id/attempts`: Fetch the chronological attempt history and audit trail, scoped to caller's `client_id`.
-- **WBS 3.3 delivery boundary:** Implement the ingestion application handler and its stable response contract; HTTP route registration, raw-body parsing, header extraction, and server startup remain transport/composition work and are not included in this WBS item.
+- **Programmatic engine interface:** Ingest events and query event status and attempt history through the embedded TypeScript library, with reads scoped to the configured `client_id`.
+- **WBS 3.3 delivery boundary:** Implement the ingestion application handler and its stable result contract within the embedded library.
 - **Global Configuration Management:**
   - Runtime readable global configuration (`timeoutLimitMs`, `maxAttempts`) fetched per cycle/hot-reloaded.
 - **Structured Logging:** Contextual JSON logs (`LOG_LEVEL`) capturing claims, dispatches, latency, attempt records, and lifecycle state transitions.
@@ -76,9 +71,9 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 | :--------------------------------------- | :------------- | :----------------------------------------------------------------------------------------------------------- |
 | **Runtime Client Registration & Multi-Client Dispatch** | Deferred | v1 binds one client identity and HMAC secret per engine instance. Host-managed runtime registration, credential rotation, and tenant-specific dispatch configuration are planned for v2.0.0. Until then, isolate each tenant in a separate database file. |
 | **Per-Tenant Configuration**             | Deferred       | v1 relies strictly on global configuration parameters. Per-client limits deferred to v2.0.                     |
-| **Administrative UI / Dashboard**        | Out-of-Scope   | Operators interact purely via HTTP APIs, CLI tooling, or direct SQL queries.                                 |
+| **Administrative UI / Dashboard**        | Out-of-Scope   | Operators use host application tooling or direct SQL queries.                                                |
 | **External Metrics (OTel / Prometheus)** | Deferred       | v1 provides structured JSON logs. Prometheus exporters deferred to v1.1.                                     |
-| **Dead-Letter Queue (DLQ) Re-drive API** | Deferred       | Failed events remain stored as `failed`/`exhausted`. Manual SQL updates handle manual re-drives in v1.       |
+| **Dead-Letter Queue (DLQ) Re-drive Tooling** | Deferred       | Failed events remain stored as `failed`/`exhausted`. Manual SQL updates handle manual re-drives in v1.       |
 | **Strict Event Ordering / Priorities**   | Out-of-Scope   | Webhooks are delivered via at-least-once semantics with independent backoffs; strict FIFO is not guaranteed. |
 | **Distributed Multi-Node Coordination**  | Out-of-Scope   | No Raft, Zookeeper, or cross-instance gossip. Concurrency safety is enforced at the database row level.      |
 | **Non-HTTP Protocols**                   | Out-of-Scope   | Supports HTTP/HTTPS webhooks only (no gRPC, WebSockets, or AMQP targets).                                    |
@@ -92,4 +87,4 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 - **Zero External Broker Dependency:** No Redis, Kafka, or RabbitMQ. All coordination must rely on SQL ACID semantics.
 - **Runtime & Type Safety:** Strict Node.js ≥ 24 runtime and TypeScript under `strict: true`.
 - **Delivery Semantics:** At-least-once delivery; consumers must remain idempotent using the system-generated event `id`.
-- **Quality Gates:** Vitest test suite with ≥80% total coverage and ≥95% coverage across critical ingestion, authentication, unified atomic claim, backoff, and HMAC/SSRF security code paths.
+- **Quality Gates:** Vitest test suite with ≥80% total coverage and ≥95% coverage across critical ingestion, tenant identity/isolation, unified atomic claim, backoff, and HMAC/SSRF security code paths.

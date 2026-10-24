@@ -11,7 +11,7 @@ export interface WebhookHttpServerOptions {
   readonly defaultDestinationUrl: string;
 }
 
-/** Creates the standalone REST server without starting a listener. */
+/** Internal HTTP server factory; not exported from the public package entry point. */
 export function createWebhookHttpServer(options: WebhookHttpServerOptions): Server {
   return createServer((request, response) => {
     void routeRequest(request, response, options).catch(() => {
