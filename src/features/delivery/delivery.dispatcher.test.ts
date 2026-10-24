@@ -2,6 +2,33 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { WebhookEvent, Timestamp } from '../../core/types.js';
 import { dispatchEvent, type DispatchInput } from './delivery.dispatcher.js';
 
+const { agentOptions, closeAgentMock, resolveDestinationMock } = vi.hoisted(() => ({
+  agentOptions: [] as unknown[],
+  closeAgentMock: vi.fn().mockResolvedValue(undefined),
+  resolveDestinationMock: vi.fn(),
+}));
+
+vi.mock('undici', async () => {
+  const actual = await vi.importActual<typeof import('undici')>('undici');
+  return {
+    ...actual,
+    Agent: class {
+      constructor(options: unknown) {
+        agentOptions.push(options);
+      }
+
+      close(): Promise<void> {
+        return closeAgentMock();
+      }
+    },
+    fetch: (...args: unknown[]) => Reflect.apply(globalThis.fetch, globalThis, args),
+  };
+});
+
+vi.mock('../../security/ssrf.js', () => ({
+  resolveDestinationForDispatch: resolveDestinationMock,
+}));
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -57,6 +84,18 @@ function mockFetchReject(error: Error): void {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error));
 }
 
+type LookupAnswer = string | readonly { readonly address: string; readonly family: number }[];
+type PinnedLookup = (
+  hostname: string,
+  options: { readonly all?: boolean },
+  callback: (error: Error | null, address: LookupAnswer, family?: number) => void,
+) => void;
+
+function getPinnedLookup(): PinnedLookup {
+  const options = agentOptions[0] as { connect: { lookup: PinnedLookup } };
+  return options.connect.lookup;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -65,6 +104,17 @@ describe('dispatchEvent', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW_ISO));
+    agentOptions.length = 0;
+    closeAgentMock.mockClear();
+    resolveDestinationMock.mockImplementation(async (value: string) => {
+      const url = new URL(value);
+      return {
+        valid: true,
+        url: url.toString(),
+        hostname: url.hostname,
+        addresses: ['93.184.216.34', '2606:4700:4700::1111'],
+      };
+    });
   });
 
   afterEach(() => {
@@ -177,6 +227,169 @@ describe('dispatchEvent', () => {
       'https://hooks.example.com/endpoint',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('uses a request-scoped pinned lookup for the freshly validated address set', async () => {
+    mockFetchSuccess(200, 'ok');
+
+    await dispatchEvent(makeInput());
+
+    expect(resolveDestinationMock).toHaveBeenCalledWith('https://consumer.example/hooks');
+    expect(agentOptions).toHaveLength(1);
+    const options = agentOptions[0] as {
+      connections: number;
+      pipelining: number;
+      maxCachedSessions: number;
+      connect: {
+        lookup: (
+          hostname: string,
+          options: object,
+          callback: (error: Error | null, address: string, family: number) => void,
+        ) => void;
+      };
+    };
+    expect(options.connections).toBe(1);
+    expect(options.pipelining).toBe(0);
+    expect(options.maxCachedSessions).toBe(0);
+
+    const lookupResult = await new Promise<{ address: string; family: number }>(
+      (resolve, reject) => {
+        options.connect.lookup('consumer.example', {}, (error, address, family) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ address, family });
+        });
+      },
+    );
+    expect(lookupResult).toEqual({ address: '93.184.216.34', family: 4 });
+    expect(closeAgentMock).toHaveBeenCalledOnce();
+  });
+
+  it('supports the connector all-address lookup callback shape with only the pin', async () => {
+    mockFetchSuccess(200, 'ok');
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<LookupAnswer>((resolve, reject) => {
+      getPinnedLookup()('consumer.example', { all: true }, (error, addresses) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(addresses);
+      });
+    });
+
+    expect(result).toEqual([{ address: '93.184.216.34', family: 4 }]);
+  });
+
+  it('rejects a lookup for a hostname other than the pinned URL host', async () => {
+    mockFetchSuccess(200, 'ok');
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<{ error: Error | null; address: LookupAnswer }>((resolve) => {
+      getPinnedLookup()('attacker.example', {}, (error, address) => resolve({ error, address }));
+    });
+
+    expect(result.error?.message).toBe('Pinned destination mismatch');
+    expect(result.address).toBe('');
+  });
+
+  it('rejects an all-address lookup for a hostname other than the pinned URL host', async () => {
+    mockFetchSuccess(200, 'ok');
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<{ error: Error | null; address: LookupAnswer }>((resolve) => {
+      getPinnedLookup()('attacker.example', { all: true }, (error, address) =>
+        resolve({ error, address }),
+      );
+    });
+
+    expect(result.error?.message).toBe('Pinned destination mismatch');
+    expect(result.address).toEqual([]);
+  });
+
+  it('fails closed if the validated resolver result contains no usable pin', async () => {
+    mockFetchSuccess(200, 'ok');
+    resolveDestinationMock.mockResolvedValue({
+      valid: true,
+      url: 'https://consumer.example/hooks',
+      hostname: 'consumer.example',
+      addresses: [],
+    });
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<{ error: Error | null; address: LookupAnswer }>((resolve) => {
+      getPinnedLookup()('consumer.example', {}, (error, address) => resolve({ error, address }));
+    });
+
+    expect(result.error?.message).toBe('No validated destination address');
+    expect(result.address).toBe('');
+  });
+
+  it('fails closed if the validated resolver result contains a malformed pin', async () => {
+    mockFetchSuccess(200, 'ok');
+    resolveDestinationMock.mockResolvedValue({
+      valid: true,
+      url: 'https://consumer.example/hooks',
+      hostname: 'consumer.example',
+      addresses: ['not-an-ip-address'],
+    });
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<{ error: Error | null; address: LookupAnswer }>((resolve) => {
+      getPinnedLookup()('consumer.example', {}, (error, address) => resolve({ error, address }));
+    });
+
+    expect(result.error?.message).toBe('No validated destination address');
+    expect(result.address).toBe('');
+  });
+
+  it('uses the all-address error callback when no validated pin is available', async () => {
+    mockFetchSuccess(200, 'ok');
+    resolveDestinationMock.mockResolvedValue({
+      valid: true,
+      url: 'https://consumer.example/hooks',
+      hostname: 'consumer.example',
+      addresses: [],
+    });
+    await dispatchEvent(makeInput());
+
+    const result = await new Promise<{ error: Error | null; address: LookupAnswer }>((resolve) => {
+      getPinnedLookup()('consumer.example', { all: true }, (error, address) =>
+        resolve({ error, address }),
+      );
+    });
+
+    expect(result.error?.message).toBe('No validated destination address');
+    expect(result.address).toEqual([]);
+  });
+
+  it('does not dispatch or create a connector when fresh destination validation fails', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    resolveDestinationMock.mockResolvedValue({ valid: false, reason: 'unsafe_address' });
+
+    const result = await dispatchEvent(makeInput());
+
+    expect(result).toMatchObject({ statusCode: null, error: 'network error' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agentOptions).toHaveLength(0);
+  });
+
+  it('applies the timeout while fresh DNS validation is pending', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    resolveDestinationMock.mockReturnValue(new Promise(() => undefined));
+
+    const dispatchPromise = dispatchEvent(makeInput({ timeoutLimitMs: 100 }));
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await dispatchPromise;
+
+    expect(result).toMatchObject({ statusCode: null, error: 'timeout' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agentOptions).toHaveLength(0);
   });
 
   it('sets Content-Type: application/json on the outbound request', async () => {

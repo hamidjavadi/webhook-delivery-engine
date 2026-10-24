@@ -3,7 +3,7 @@
 - **Status:** Active
 - **Version:** 1.0.0
 - **Owner:** Engineering
-- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.2, 3.3, 3.4, 4.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3, 7.1, and 7.2: core domain
+- **Scope:** WBS Tasks 1.2, 2.1, 2.2, 2.3, 2.6, 2.7, 3.2, 3.3, 3.4, 4.1, 5.2, 5.2.a, 5.3, 5.4, 6.1, 6.2, 6.3, 7.1, and 7.2: core domain
   contracts, SQLite schema/migrations, the better-sqlite3 storage adapter,
   atomic claim, configured tenant identity, ingestion input validation and
   SSRF URL validation, atomic idempotent ingestion, poll-cycle coordination, outbound
@@ -94,6 +94,17 @@ updates against a real SQLite adapter. Verify attempt ordinals use the claim's
 reserved `attemptCount`, error descriptions do not expose transport internals,
 and persisted response snippets stay within 1,024 UTF-8 bytes. Worker failures
 are reported through the scheduler callback seam.
+
+For WBS 5.2.a, after design approval, add a deterministic DNS-rebinding test
+that supplies a changed answer after ingestion preflight and proves the socket
+uses only a fresh vetted pin. Verify unsafe, mixed, empty, and failed answers
+open no connection; use a local HTTPS fixture to prove the original destination
+hostname is retained for SNI and certificate identity; and verify a wrong-host
+certificate or connection failure sends no HTTP request. Verify redirects are
+not followed and retain timeout, signing, body, status, latency, and response
+snippet behavior. Tests must not contact external DNS or destinations. Run the
+focused dispatcher suite first, then the required project suite and coverage
+checks before marking WBS 5.2.a Done; record actual environment and results.
 ## Strategy and Layers (Unit / Integration / E2E)
 
 ### WBS 7.1 Execution Plan (Issue #64)
@@ -749,3 +760,35 @@ execution evidence, not as current v1 acceptance evidence.
   created for WBS 6.3.
 - **Go/No-Go:** Go for implementation review; no registry publish or deployment
   was performed.
+
+### Task 5.2.a Results (Issue #82)
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; Undici
+  8.12.3. Connection tests use a local HTTPS server and test-only certificate;
+  no external DNS lookup or destination is contacted.
+- **TDD evidence:** Resolver tests were first run against the missing dispatch
+  resolver and failed as expected. Dispatcher tests then demonstrated the
+  missing fresh-resolution and request-scoped-Agent behavior before the
+  implementation was added.
+- **Security coverage:** Tests prove dispatch-time resolution catches an
+  answer changed since ingestion preflight; unsafe/mixed/empty/failed results
+  open no connection; a local HTTPS server receives a request through the
+  vetted address with the original hostname as SNI; incorrect certificate
+  identity and connection failure send no HTTP request; redirects are not
+  followed. Existing timeout, signature, body, status, latency, and response
+  snippet behavior remains covered.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (20 files, 401
+  tests).
+- **Coverage:** 98.54% overall statements/lines, 99.09% functions, and 95.53%
+  branches. The dispatcher measured 100% statements, lines, and functions with
+  97.29% branch coverage; SSRF validation measured 98.75% statements/lines,
+  100% functions, and 98.55% branches.
+- **Other checks:** `pnpm exec tsc --noEmit --project tsconfig.json`,
+  `pnpm lint`, `pnpm build`, and Prettier checks on changed source and
+  documentation passed. `git diff --check` is recorded after the final
+  documentation update.
+- **Open limitations:** The request-scoped Agent adds per-dispatch connection
+  setup overhead. Broader R-03 acceptance remains part of the WBS 8.2.b
+  phase-gate review.
+- **Go/No-Go:** Go for WBS 5.2.a implementation and review; the DNS-rebinding
+  dispatch gap is covered by the tests above.

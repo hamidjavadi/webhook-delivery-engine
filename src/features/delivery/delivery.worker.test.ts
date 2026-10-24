@@ -5,6 +5,26 @@ import type { Timestamp, WebhookEvent } from '../../core/types.js';
 import { createDeliveryWorker, processDeliveryAttempt } from './delivery.worker.js';
 import type { DispatchInput, DispatchResult } from './delivery.dispatcher.js';
 
+vi.mock('../../security/ssrf.js', () => ({
+  resolveDestinationForDispatch: async (value: string) => {
+    const url = new URL(value);
+    return {
+      valid: true,
+      url: url.toString(),
+      hostname: url.hostname,
+      addresses: ['93.184.216.34'],
+    };
+  },
+}));
+
+vi.mock('undici', async () => {
+  const actual = await vi.importActual<typeof import('undici')>('undici');
+  return {
+    ...actual,
+    fetch: (...args: unknown[]) => Reflect.apply(globalThis.fetch, globalThis, args),
+  };
+});
+
 const ATTEMPTED_AT: Timestamp = '2026-10-21T18:00:00.000Z';
 const UPDATED_AT: Timestamp = '2026-10-21T18:00:01.000Z';
 const HMAC_SECRET = 'test-hmac-secret';
