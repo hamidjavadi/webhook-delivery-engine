@@ -79,9 +79,15 @@
 | Task ID | Task Description                               | Dependencies | Owner        | Est. | Acceptance Criteria                                                                                                                                                                                                                                                                      | Status |
 | :------ | :--------------------------------------------- | :----------- | :----------- | :--- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----- |
 | **5.1** | **HMAC-SHA256 Request Signer**                 | 1.2          | Security Eng | 3h   | Canonical header injection (`x-webhook-signature`, `x-webhook-timestamp`) computed across timestamp and raw body payload.                                                                                                                                                                | Done   |
-| **5.2** | **HTTP Dispatcher & Timeout Controller**       | 5.1          | Backend Eng  | 5h   | Native fetch execution with `AbortController` bound to `timeoutLimitMs` (default: 10,000 ms); records status code, latency, and snippet.                                                                                                                                                 | Done   |
+| **5.2** | **HTTP Dispatcher & Timeout Controller**       | 5.1          | Backend Eng  | 5h   | Native fetch execution with `AbortController` bound to `timeoutLimitMs` (default: 10,000 ms); records status code, latency, and snippet.                                                                                                                                                 | Partial; connection pinning follow-up open |
 | **5.3** | **Backoff Calculator with Full Jitter**        | 1.2          | Backend Eng  | 3h   | Implements delay = min(base * 2^(attempt - 1), cap) with full jitter next_retry = now + rand(0, delay); unit tests verify boundaries.                                                                                                                                                    | Done   |
 | **5.4** | **Delivery Result Processor & Attempt Logger** | 5.2, 5.3     | Backend Eng  | 4h   | 2xx transitions to `delivered`; non-retryable 4xx (400, 401, 403, 404, 410, 422, and other default 4xx per ADR-0004) write an attempt audit row with `outcome='exhausted'` and immediately transition to terminal `failed`; retryable 4xx (408, 409, 429), 5xx, and timeouts write an attempt audit row, increment `attempt_count`, and schedule retry or mark terminal `failed` with `outcome='exhausted'` at `maxAttempts`. Response snippet bounded to <= 1 KB. | Done |
+
+#### WBS 5.2 Follow-up
+
+| Task ID | Deliverable | Dependency | Owner | Est. | Acceptance Criterion | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **5.2.a** | Pin validated destination addresses at connection time | 3.2, 5.2 | Backend / Security Eng | 8h (provisional) | Dispatch connects only to an address validated for the request while preserving HTTPS hostname, SNI, and certificate checks; redirects remain disabled or each redirect target is validated and pinned. Tests prove DNS changes after preflight cannot route the request to an unsafe address, and no request is sent on validation, connection, or TLS identity failure. | Ready; phase-checkpoint approval required |
 
 ---
 
@@ -111,5 +117,12 @@
 
 | Task ID | Task Description                     | Dependencies | Owner    | Est. | Acceptance Criteria                                                                                 | Status |
 | :------ | :----------------------------------- | :----------- | :------- | :--- | :-------------------------------------------------------------------------------------------------- | :----- |
-| **8.1** | **API & Architecture Documentation** | 6.1, 6.2     | Lead Eng | 3h   | Complete `README.md` and API usage documentation with code samples.                                 | Implemented; awaiting review and merge |
-| **8.2** | **Planning Phase Gate Audit**        | 1.1 - 8.1    | Lead Eng | 2h   | 100% compliance check against PRD, Scope, and `00-master-rules.md` checklist prior to starting SDD. | Ready  |
+| **8.1** | **API & Architecture Documentation** | 6.1, 6.2     | Lead Eng | 3h   | Complete `README.md` and API usage documentation with code samples.                                 | Done; PR #78 merged |
+| **8.2** | **Planning Phase Gate Audit**        | 1.1 - 8.1    | Lead Eng | 2h   | 100% compliance check against PRD, Scope, and `00-master-rules.md` checklist prior to starting SDD. | Audited; No-Go, follow-ups open |
+
+#### WBS 8.2 Follow-up Actions
+
+| Task ID | Deliverable | Dependency | Owner | Est. | Acceptance Criterion | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **8.2.a** | Reconcile planning and design records with merged implementation | 8.2 | Lead Eng | 2h | SDD, roadmap, and risk records reflect the current host-owned identity, completed WBS tasks, dispatcher security gap, and current acceptance criteria; historical API-key evidence remains clearly labeled historical. | Ready |
+| **8.2.b** | Re-run phase-gate audit and record decision | 5.2.a, 8.2.a | Lead Eng | 1h | Audit findings are closed or explicitly accepted by the stakeholder; traceability, risk gates, and approval records are complete, and the resulting Go/No-Go decision is recorded. | Blocked by 5.2.a and 8.2.a |
