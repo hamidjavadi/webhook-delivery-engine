@@ -50,6 +50,11 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
   2. Inspect database transaction isolation levels and lock mechanics across the active dialect.
   3. Run the reconciliation script to reconcile duplicate records and enforce single-attempt tracking.
 
+R-08 is addressed through the host-owned lifecycle contract: the host registers
+OS signal handlers and invokes and awaits engine `stop()` during shutdown. The
+engine itself does not intercept OS signals. If the host omits this integration,
+queued claims may be released only on restart through stale-lease recovery.
+
 ### 3.2. SSRF Infiltration Attempt (R-03)
 
 - **Detection:** Dispatch engine catches attempt to resolve internal, loopback, or cloud instance metadata addresses.

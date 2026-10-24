@@ -386,13 +386,13 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 | Layer              | Tooling                        | Coverage target                                                                     |
 | ------------------ | ------------------------------ | ----------------------------------------------------------------------------------- |
-| Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, timing-safe auth     |
-| Integration        | Vitest + mock endpoints        | Handler validation/result contract, configured tenant identity and ingestion idempotency (AC1/AC2/AC7), retry lifecycle (AC4–AC6), restart recovery (AC11) |
+| Unit               | Vitest                         | Backoff math, HMAC computation, SSRF guard, config validation, delivery result processing (AC16) |
+| Integration        | Vitest + mock endpoints        | Handler validation/result contract, configured tenant identity and ingestion idempotency (AC1/AC2/AC7), retry lifecycle (AC4–AC6), restart recovery (AC11), SQLite adapter (AC15), non-retryable 4xx outcome (AC16) |
 | SQLite concurrency | Vitest × SQLite                | ≥ 100 parallel claims with zero double-claims (AC3); ≥ 1,000 same-tenant duplicate ingestion submissions with one row and stable id (AC2) |
-| Security suite     | Vitest                         | Auth (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation                    |
+| Security suite     | Vitest                         | Host-owned access and identity (AC7), signatures (AC8/AC12), SSRF (AC14), tenant isolation |
 | Fault injection    | Vitest                         | Worker crash recovery (AC9), DB outage backoff                                      |
 
-Thresholds: ≥ 80% overall; ≥ 95% on ingestion, atomic claim, retry scheduler, auth, HMAC, and SSRF validation paths (G8, AC13). WBS 3.3 tests cover short-circuit auth, strict parsed-body schema, caller-vs-config destination errors, successful new/replay response shapes, tenant isolation, immutable original rows on replay, propagated adapter failures, and the 1,000-submission SQLite concurrency criterion. SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
+Thresholds: ≥ 80% overall; ≥ 95% on ingestion, configured tenant identity/isolation, atomic claim, retry scheduler/backoff, HMAC, and SSRF validation paths (G8, AC13). WBS 3.3/3.4 tests cover strict parsed-body schema, caller-vs-config destination errors, successful new/replay response shapes, tenant isolation, immutable original rows on replay, propagated adapter failures, and the 1,000-submission SQLite concurrency criterion. Historical API-key authentication results are recorded in the test plan as historical evidence only. SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
 WBS 7.1 measures the public embedded `enqueue()` path against a temporary local
 SQLite file. Complete engine construction, startup, and migrations before

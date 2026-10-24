@@ -124,5 +124,5 @@
 
 | Task ID | Deliverable | Dependency | Owner | Est. | Acceptance Criterion | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **8.2.a** | Reconcile planning and design records with merged implementation | 8.2 | Lead Eng | 2h | SDD, roadmap, and risk records reflect the current host-owned identity, completed WBS tasks, dispatcher security gap, and current acceptance criteria; historical API-key evidence remains clearly labeled historical. | Ready |
+| **8.2.a** | Reconcile planning and design records with merged implementation | 8.2 | Lead Eng | 2h | SDD, roadmap, and risk records reflect the current host-owned identity, completed WBS tasks, dispatcher security gap, and current acceptance criteria; historical API-key evidence remains clearly labeled historical. | Done; issue #80 |
 | **8.2.b** | Re-run phase-gate audit and record decision | 5.2.a, 8.2.a | Lead Eng | 1h | Audit findings are closed or explicitly accepted by the stakeholder; traceability, risk gates, and approval records are complete, and the resulting Go/No-Go decision is recorded. | Blocked by 5.2.a and 8.2.a |
