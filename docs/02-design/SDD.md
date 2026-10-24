@@ -120,13 +120,13 @@ sequenceDiagram
 
 ### 2.5 Structured JSON Logger (WBS 6.3)
 
-The engine will use the existing `pino` runtime dependency through a small `src/shared/logger.ts` module. `createWebhookEngine` will accept an optional typed `logLevel`; when omitted it will use `LOG_LEVEL`, then default to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written through Pino's standard output destination.
+The engine uses the existing `pino` runtime dependency through `src/shared/logger.ts`. `createWebhookEngine` accepts an optional typed `logLevel`; when omitted it uses `LOG_LEVEL`, then defaults to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written through Pino's standard output destination.
 
-The composition root will pass the logger through narrow logging callbacks so feature modules do not write directly to the console. Records will identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, HMAC secrets, raw exception messages, or stacks.
+The composition root passes the logger through narrow logging callbacks so feature modules do not write directly to the console. Records identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, HMAC secrets, raw exception messages, or stacks.
 
-Pino redaction will remove known sensitive fields, credential-like values in host-provided data, HMAC key fields, payload/body fields, and nested event/request equivalents as defense in depth. Internal logging will use explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; this task does not add a transport, file sink, or telemetry exporter.
+Pino redaction removes known sensitive fields, credential-like values in host-provided data, HMAC key fields, payload/body fields, and nested event/request equivalents as defense in depth. Internal logging uses explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; there is no added transport, file sink, or telemetry exporter.
 
-Tests will verify the supported level selection and filtering, JSON record shape, event context, redaction of sensitive values at nested paths, and that poll/delivery errors do not leak raw messages or stacks.
+Tests verify supported level selection and filtering, JSON record shape, event context, redaction of sensitive values at nested paths, and that poll/delivery errors do not leak raw messages or stacks.
 
 ---
 
@@ -202,7 +202,7 @@ Unique composite index: `uq_webhook_event_attempts_event_number (event_id, attem
 
 - **SQLite (v1.0):** TEXT ids, JSON encoded as validated TEXT, ISO-8601 strings for timestamps, WAL mode, `busy_timeout = 5000 ms`, single-statement conditional `UPDATE ... RETURNING` claims, and `BEGIN IMMEDIATE` for multi-statement attempt/state transitions (mitigates R1).
 - PostgreSQL and MySQL dialect mappings, schemas, drivers, and adapters are deferred to v2.0 and are not shipped or supported by the v1.0 runtime.
-- Validation of all persisted values is enforced at the module boundary (Zod/Valibot schemas at startup and ingestion).
+- Validation of all persisted values is enforced at the module boundary with Zod schemas at startup and ingestion.
 
 ### 4.4 SQLite Adapter Behavior
 
@@ -452,72 +452,40 @@ the database directory.
 
 ## 11. Feature-Based Directory Layout and Source Organization
 
-To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: each business capability (ingestion, scheduler, delivery, query) owns its handlers, schemas, and tests, while cross-cutting concerns (adapters, contracts, security primitives, configuration, logging) live in shared layers that features depend on — never the reverse.
+To keep the codebase aligned with the feature seams defined in §3, the source tree is organized **feature-first**: ingestion, scheduler, and delivery own their handlers, schemas, and tests. The embedded composition root exposes tenant-scoped query methods through the database adapter; query methods do not form a separate HTTP feature. Cross-cutting concerns (contracts, security primitives, configuration, persistence, and logging) live in shared layers.
 
 ### 11.1 Directory Structure
 
 ```text
 src/
-├── index.ts                   # Public npm package root exports (WBS 6.2)
-├── features/                  # Business capabilities (one folder per feature)
-│   ├── ingestion/             # WBS 3.3 — idempotent event ingestion
-│   │   ├── ingestion.handler.ts       # Atomic upsert handler, 202 response shape
-│   │   ├── ingestion.schema.ts        # Zod/Valibot request payload schemas
-│   │   ├── ingestion.schema.test.ts   # Strict parsed-body schema tests (WBS 3.2)
-│   │   ├── ingestion.service.ts       # Upsert + WEBHOOK_URL fallback logic
-│   │   └── ingestion.test.ts          # Unit/integration tests (AC1/AC2)
-│   ├── scheduler/             # WBS 4.1 — poll loop and claim coordination
-│   │   ├── scheduler.loop.ts          # Poll cycle, batch-size claim dispatch
-│   │   ├── scheduler.claim.ts         # Atomic conditional UPDATE claim (ADR-0001)
-│   │   ├── scheduler.config.ts        # Poll interval / batch size accessors
-│   │   └── scheduler.test.ts          # ≥ 100 parallel claims, zero double-claims (AC3)
-│   ├── delivery/              # WBS 5.x — outbound dispatch
-│   │   ├── delivery.worker.ts         # Per-event dispatch, timeoutLimitMs abort
-│   │   ├── delivery.classify.ts       # Outcome classification (ADR-0004, FR-17)
-│   │   ├── delivery.backoff.ts        # Full-jitter exponential backoff math
-│   │   ├── delivery.hmac.ts           # HMAC-SHA256 signing (FR-11–FR-13)
-│   │   ├── delivery.worker.test.ts    # Worker attempt persistence and lifecycle transitions
-│   │   ├── delivery.classify.test.ts  # HTTP result policy and retry exhaustion
-│   │   └── delivery.test.ts           # Retry lifecycle, signatures (AC4–AC8)
-│   └── query/                 # WBS 6.x — tenant-scoped status & attempt reads
-│       ├── query.service.ts           # client_id-scoped queries (NFR-S7, FR-19)
-│       ├── query.schema.ts            # Filter/pagination validation
-│       └── query.test.ts              # Isolation tests (404 on cross-tenant)
-├── core/                      # Domain contracts and pure domain logic
-│   ├── types.ts                       # WebhookEvent, AttemptRecord, status enums
-│   ├── errors.ts                      # Typed error hierarchy, error shapes
-│   ├── result.ts                      # Result/Either helpers (no throw-across-seam)
-│   └── ports.ts                       # DatabaseAdapter, Clock, HttpClient interfaces
-├── storage/                   # Persistence layer (drivers + migrations)
-│   ├── adapters/
-│   │   ├── sqlite.adapter.ts          # better-sqlite3, WAL, BEGIN IMMEDIATE
-│   ├── migrations/
-│   │   ├── runner.ts                  # Applies SQLite SQL migrations (ADR-0003)
-│   │   └── sql/
-│   │       ├── sqlite/                # Versioned SQLite .sql files
-│   └── storage.test.ts                # SQLite schema and persistence tests
-├── security/                  # Cross-cutting security primitives
-│   ├── ssrf.ts                        # URL resolver + private/metadata guard (WBS 3.2 / AC14)
-│   ├── ssrf.test.ts                   # Deterministic IPv4/IPv6 and DNS boundary tests (AC14)
-│   └── security.test.ts               # Tenant identity and isolation suites (AC7, AC12)
-├── app/                       # Composition root
-│   ├── embedded.ts                    # Public createWebhookEngine factory implementation
-│   ├── engine.ts                      # Feature wiring: migrations, scheduler, delivery, APIs
-│   └── lifecycle.ts                   # Graceful engine start/stop and claim cleanup
-├── shared/                    # Infrastructure-agnostic utilities
-│   ├── logger.ts                      # Structured JSON logger + redactors (R6)
-│   ├── time.ts                        # Clock abstraction, ISO-8601 helpers
-│   └── validation.ts                  # Shared schema validators
-└── config/                    # Configuration surface
-    ├── env.ts                         # Env parsing: DATABASE_URL, secrets (D4)
-    ├── engine.config.ts               # EngineConfig defaults & validation (R5)
-    └── config.test.ts                 # Fallback-to-defaults tests
+├── index.ts                            # Public package root exports
+├── app/                                # Embedded composition and lifecycle
+│   ├── bootstrap.ts                    # Startup sequencing
+│   ├── embedded.ts                     # createWebhookEngine and public methods
+│   └── lifecycle.ts                    # Graceful shutdown and claim cleanup
+├── config/
+│   └── engine.config.ts                # Concurrency, timeout, and retry contracts
+├── core/
+│   ├── errors.ts                       # Typed domain errors
+│   ├── ports.ts                        # Database adapter contract
+│   └── types.ts                        # Event, attempt, and JSON types
+├── features/
+│   ├── delivery/                       # Dispatch, signing, retry, and result handling
+│   ├── ingestion/                      # Strict schema and idempotent ingestion handler
+│   └── scheduler/                      # Poll loop, recovery, and batch claiming
+├── security/
+│   └── ssrf.ts                         # HTTPS destination and address validation
+├── shared/
+│   └── logger.ts                       # Structured logging and redaction
+└── storage/
+    ├── migrations/                     # SQLite migration runner and SQL files
+    └── sqlite.adapter.ts               # SQLite persistence implementation
 ```
 
 ### 11.2 Dependency Rules
 
 - **features → core, storage, security, shared, config:** allowed. Features never import each other directly; cross-feature interaction goes through `core/ports.ts` interfaces (e.g., the scheduler consumes `DatabaseAdapter` contracts, not ingestion internals).
-- **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. No circular imports — enforced by `eslint-plugin-boundaries` / `dependency-cruiser` in CI.
+- **core** depends on nothing (pure types and contracts); **storage, security, shared, config** may depend on `core` only. Keep imports acyclic and enforce these boundaries in code review.
 - **storage** is the only layer that imports database drivers (`better-sqlite3` in v1.0); all statements remain parameterized (NFR-S4). PostgreSQL/MySQL drivers are deferred to v2.0.
 - **security** contains destination validation and other security primitives; the host owns any external caller authentication or rate limiting, while engine composition binds the configured tenant identity.
 - **app/** is the only place that instantiates concrete adapters and wires features together (composition root). `src/index.ts` is the public npm import barrel and re-exports `createWebhookEngine` from `app/embedded.ts`.
@@ -525,8 +493,8 @@ src/
 ### 11.3 Rationale
 
 - **Change locality:** adding a consumer-facing capability (e.g., future re-drive tooling) is a new `src/features/<name>/` folder — no edits scattered across a layer-first tree.
-- **Testability parity with §9:** each feature folder carries its colocated tests mapped to acceptance criteria (AC1–AC14), and coverage thresholds (≥ 80% overall, ≥ 95% critical paths) are enforced per feature in CI.
-- **Constraint fit:** the layout preserves the low-coupling rule of §3 (everything programs against `DatabaseAdapter` and `EngineConfig` in `core/ports.ts` / `config/engine.config.ts`) and keeps dialect quirks (risk R7) isolated behind `storage/adapters/`.
+- **Testability parity with §9:** feature tests are colocated with their implementation and mapped to acceptance criteria (AC1–AC14); project coverage targets are tracked by the test plan and CI.
+- **Constraint fit:** the layout preserves the low-coupling rule of §3 (modules program against `DatabaseAdapter` and `EngineConfig` contracts) and keeps SQLite-specific behavior in `src/storage/sqlite.adapter.ts` and SQLite migrations.
 - **Master-rule compliance:** layout finalized at design checkpoint; structural changes after approval require an ADR.
 
 ---

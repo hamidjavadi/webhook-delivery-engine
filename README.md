@@ -66,6 +66,9 @@ The host-configured `clientId` is bound to the engine and stamped on ingested ev
 
 The supported package interface is the TypeScript library. The package root does not expose REST endpoints or an HTTP server; applications that need HTTP routes must implement them in the host and call the library methods.
 
+See the [Embedded API Guide](docs/API.md) for option details, ingestion results,
+tenant-scoped queries, security expectations, and development commands.
+
 ## Development
 
 | Script          | Description                                         |
