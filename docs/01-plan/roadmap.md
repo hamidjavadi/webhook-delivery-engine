@@ -8,7 +8,7 @@
 
 ### Phase 1: Foundation & SQLite Persistence
 
-- **Estimated Effort:** ~32h (WBS 1.0: 6h, WBS 2.0: 26h)
+- **Estimated Effort:** ~28h (WBS 1.0: 6h, WBS 2.0: 22h)
 - **Objective:** Establish the project environment, strict typing contracts, SQLite persistence, and the database-adapter contract. PostgreSQL and MySQL implementations are deferred to v2.0.
 - **Key Milestones:**
   - `M1.1`: Strict Node.js (≥24) / TypeScript workspace configured with zero-tolerance linting.
@@ -23,7 +23,7 @@
 
 ### Phase 2: Ingestion Pipeline & Security Subsystems
 
-- **Estimated Effort:** ~15h total, including the 6h WBS 3.4 follow-up estimate.
+- **Estimated Effort:** ~14h total, excluding superseded WBS 3.1 and including the 6h WBS 3.4 follow-up estimate.
 - **Objective:** Complete the host-driven ingestion path, prevent duplicate processing, and protect against unsafe destinations.
 - **Key Milestones:**
   - `M2.1` (Complete): Host-owned ingestion identity: embedded calls require no API key, and accepted events use the `clientId` configured when the engine is created (WBS 3.4).
@@ -36,7 +36,7 @@
 
 ### Phase 3: Worker Engine, HTTP Dispatcher & Backoff Policy
 
-- **Estimated Effort:** ~22h (WBS 4.0: 8h, WBS 5.0: 14h)
+- **Estimated Effort:** ~23h (WBS 4.0: 8h, WBS 5.0: 15h; WBS 5.2.a's provisional 8h is excluded).
 - **Objective:** Implement the background polling loop, HTTP client dispatcher, cryptographic delivery signing, and bounded exponential backoff.
 - **Key Milestones:**
   - `M3.1`: Polling coordinator performs stale recovery before configurable atomic batch claims, throttles empty cycles, and passes claimed events to the worker seam; the host owns OS signal registration and calls engine shutdown during process termination.
@@ -51,7 +51,7 @@
 
 ### Phase 4: Public Interfaces, End-to-End Hardening & Release Gate
 
-- **Estimated Effort:** ~38h (WBS 6.0: 11h, WBS 7.0: 22h, WBS 8.0: 5h)
+- **Estimated Effort:** ~44h (WBS 6.0: 11h, WBS 7.0: 26h, WBS 8.0: 7h)
 - **Objective:** Expose the embedded TypeScript library, validate under extreme concurrency, and satisfy all PRD release gates.
 - **Key Milestones:**
   - `M4.1`: Programmatic ingestion and tenant-scoped query methods are available through the embedded engine; WBS 3.4 is complete.
@@ -60,8 +60,8 @@
   - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark were revalidated against the approved thresholds after WBS 3.4.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
   - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 remain open.
-- **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all Acceptance Criteria AC-1 through AC-14 pass.
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 remains partial pending 5.2.a.
+- **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all PRD Acceptance Criteria AC1–AC16 pass, including AC15 (SQLite adapter) and AC16 (non-retryable 4xx handling).
 
 ---
 
