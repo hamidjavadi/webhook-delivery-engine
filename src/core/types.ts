@@ -47,7 +47,7 @@ export interface WebhookEvent {
   readonly id: string;
   /** Client-supplied key, unique within `clientId`. */
   readonly idempotencyKey: string;
-  /** Authenticated tenant identifier used for all tenant-scoped reads. */
+  /** Host-configured tenant identifier used for all tenant-scoped reads. */
   readonly clientId: string;
   /** Fully qualified destination URL validated before persistence. */
   readonly destinationUrl: string;

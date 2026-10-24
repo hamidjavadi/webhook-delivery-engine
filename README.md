@@ -34,11 +34,6 @@ The SQLite driver includes a native module. Package managers that block dependen
 
 Create and start an engine instance in the host application:
 
-> **Implementation status:** This example shows the approved v1 interface.
-> WBS 3.4 is still pending, and the current implementation still requires the
-> legacy `apiKey` option. The example will match the package after WBS 3.4 is
-> implemented and verified.
-
 ```ts
 import { createWebhookEngine } from 'webhook-delivery-engine';
 

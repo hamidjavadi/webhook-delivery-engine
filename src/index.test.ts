@@ -35,7 +35,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath: join(directory, 'engine.sqlite'),
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -71,12 +70,68 @@ describe('public package root', () => {
     await expect(engine.start()).rejects.toThrow(/cannot start/);
   });
 
+  it('keeps event reads scoped to the configured client identity', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'webhook-engine-tenant-scope-'));
+    directories.push(directory);
+    const databasePath = join(directory, 'engine.sqlite');
+    const database = await SqliteDatabaseAdapter.open(databasePath);
+    const now = new Date().toISOString();
+    await database.upsertEvent({
+      id: 'other-tenant-event',
+      idempotencyKey: 'other-tenant-key',
+      clientId: 'tenant-2',
+      destinationUrl: 'https://consumer.example/hooks',
+      payload: {},
+      metadata: {},
+      headers: {},
+      status: 'delivered',
+      attemptCount: 1,
+      nextRetryAt: null,
+      lockedAt: null,
+      lockedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    database.close();
+
+    const engine = publicApi.createWebhookEngine({
+      databasePath,
+      clientId: 'tenant-1',
+      hmacSecret: 'hmac-secret',
+      defaultDestinationUrl: 'https://consumer.example/hooks',
+      config: {
+        concurrency: { workerCount: 1, batchSize: 1, pollIntervalMs: 60_000 },
+        timeoutLimitMs: 1000,
+        retry: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 },
+      },
+    });
+    await engine.start();
+
+    await expect(engine.getEvent('other-tenant-event')).resolves.toBeNull();
+    await expect(engine.getEvent('other-tenant-key')).resolves.toBeNull();
+    await expect(engine.listEvents({ limit: 10 })).resolves.toMatchObject({ items: [] });
+    await expect(engine.listAttempts('other-tenant-event')).resolves.toEqual([]);
+    await engine.stop();
+  });
+
   it('rejects invalid engine configuration before opening storage', () => {
     expect(() =>
       publicApi.createWebhookEngine({
         databasePath: ':memory:',
+        clientId: ' ',
+        hmacSecret: 'hmac-secret',
+        defaultDestinationUrl: 'https://consumer.example/hooks',
+        config: {
+          concurrency: { workerCount: 1, batchSize: 1, pollIntervalMs: 50 },
+          timeoutLimitMs: 1000,
+          retry: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 },
+        },
+      }),
+    ).toThrow(/clientId/);
+    expect(() =>
+      publicApi.createWebhookEngine({
+        databasePath: ':memory:',
         clientId: 'tenant-1',
-        apiKey: 'api-key',
         hmacSecret: 'hmac-secret',
         defaultDestinationUrl: 'https://consumer.example/hooks',
         config: {
@@ -90,7 +145,6 @@ describe('public package root', () => {
       publicApi.createWebhookEngine({
         databasePath: ':memory:',
         clientId: 'tenant-1',
-        apiKey: 'api-key',
         hmacSecret: 'hmac-secret',
         defaultDestinationUrl: 'https://consumer.example/hooks',
         config: {
@@ -100,27 +154,12 @@ describe('public package root', () => {
         },
       }),
     ).toThrow(/maxDelayMs/);
-    expect(() =>
-      publicApi.createWebhookEngine({
-        databasePath: ':memory:',
-        clientId: 'tenant-1',
-        apiKey: '',
-        hmacSecret: 'hmac-secret',
-        defaultDestinationUrl: 'https://consumer.example/hooks',
-        config: {
-          concurrency: { workerCount: 1, batchSize: 1, pollIntervalMs: 50 },
-          timeoutLimitMs: 1000,
-          retry: { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 1000 },
-        },
-      }),
-    ).toThrow(/apiKey/);
   });
 
   it('closes an engine that cannot open its configured database', async () => {
     const engine = publicApi.createWebhookEngine({
       databasePath: join(tmpdir(), 'missing-webhook-engine-dir', 'engine.sqlite'),
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -139,7 +178,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath: join(directory, 'engine.sqlite'),
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -164,7 +202,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath,
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -218,7 +255,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath,
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -265,7 +301,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath: join(directory, 'engine.sqlite'),
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -295,7 +330,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath: join(directory, 'engine.sqlite'),
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {
@@ -361,7 +395,6 @@ describe('public package root', () => {
     const engine = publicApi.createWebhookEngine({
       databasePath,
       clientId: 'tenant-1',
-      apiKey: 'api-key',
       hmacSecret: 'hmac-secret',
       defaultDestinationUrl: 'https://consumer.example/hooks',
       config: {

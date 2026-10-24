@@ -197,7 +197,7 @@ export interface DatabaseAdapter {
    * Finds one event while enforcing its tenant boundary.
    *
    * @param eventId System-generated event identifier.
-   * @param clientId Authenticated tenant that must own the event.
+   * @param clientId Configured tenant that must own the event.
    * @returns The tenant-owned event, or null when not found.
    */
   findEventById(eventId: string, clientId: string): Promise<WebhookEvent | null>;
@@ -205,7 +205,7 @@ export interface DatabaseAdapter {
   /**
    * Finds an event by its tenant-scoped idempotency key.
    *
-   * @param clientId Authenticated tenant that owns the idempotency namespace.
+   * @param clientId Configured tenant that owns the idempotency namespace.
    * @param idempotencyKey Client-supplied key to find.
    * @returns The matching tenant-owned event, or null when not found.
    */
@@ -225,7 +225,7 @@ export interface DatabaseAdapter {
    * order. Implementations must enforce ownership in the database query.
    *
    * @param eventId Identifier of the event whose attempts are requested.
-   * @param clientId Authenticated tenant that must own the event.
+   * @param clientId Configured tenant that must own the event.
    * @returns The event's attempts ordered by their 1-based ordinal.
    */
   listAttempts(eventId: string, clientId: string): Promise<readonly AttemptRecord[]>;

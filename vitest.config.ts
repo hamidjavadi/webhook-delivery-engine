@@ -12,8 +12,6 @@ export default defineConfig({
         'src/app/**/*.ts',
         'src/features/delivery/**/*.ts',
         'src/features/ingestion/**/*.ts',
-        'src/features/query/**/*.ts',
-        'src/features/http/**/*.ts',
         'src/features/scheduler/**/*.ts',
         'src/security/**/*.ts',
         'src/shared/**/*.ts',
@@ -42,25 +40,7 @@ export default defineConfig({
           lines: 95,
           statements: 95,
         },
-        'src/app/http.server.ts': {
-          branches: 95,
-          functions: 95,
-          lines: 95,
-          statements: 95,
-        },
-        'src/features/ingestion/ingestion.routes.ts': {
-          branches: 95,
-          functions: 95,
-          lines: 95,
-          statements: 95,
-        },
         'src/features/ingestion/ingestion.handler.ts': {
-          branches: 95,
-          functions: 95,
-          lines: 95,
-          statements: 95,
-        },
-        'src/features/query/query.routes.ts': {
           branches: 95,
           functions: 95,
           lines: 95,
@@ -91,12 +71,6 @@ export default defineConfig({
           statements: 95,
         },
         'src/features/delivery/delivery.hmac.ts': {
-          branches: 95,
-          functions: 95,
-          lines: 95,
-          statements: 95,
-        },
-        'src/security/auth.ts': {
           branches: 95,
           functions: 95,
           lines: 95,

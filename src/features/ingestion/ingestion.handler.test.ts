@@ -4,14 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebhookEvent } from '../../core/types.js';
 import type { DatabaseAdapter } from '../../core/ports.js';
-import type { ApiKeyAuthenticationResult } from '../../security/auth.js';
 import { SqliteDatabaseAdapter } from '../../storage/sqlite.adapter.js';
 import { handleIngestion } from './ingestion.handler.js';
 
-const authentication: ApiKeyAuthenticationResult = {
-  authenticated: true,
-  clientId: 'client-1',
-};
+const clientId = 'client-1';
 
 const requestBody = {
   idempotency_key: 'request-1',
@@ -29,7 +25,7 @@ describe('handleIngestion', () => {
   it('creates a server-owned event and returns the new-event acceptance result', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication,
+      clientId,
       body: requestBody,
       defaultDestinationUrl: 'https://93.184.216.34/default',
       database: createDatabase(upsertEvent),
@@ -66,27 +62,27 @@ describe('handleIngestion', () => {
     expect(event?.id).not.toBe('request-1');
   });
 
-  it('returns unauthorized before validating the body or writing to storage', async () => {
+  it('rejects invalid request bodies without writing to storage', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication: { authenticated: false, statusCode: 401 },
-      body: { client_id: 'untrusted', payload: undefined },
-      defaultDestinationUrl: 'not a URL',
+      clientId,
+      body: { ...requestBody, client_id: 'spoofed-client' },
+      defaultDestinationUrl: 'https://93.184.216.34/default',
       database: createDatabase(upsertEvent),
     });
 
     expect(result).toEqual({
-      statusCode: 401,
-      body: { error: 'unauthorized' },
+      statusCode: 400,
+      body: { error: 'invalid_request' },
     });
     expect(upsertEvent).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid request bodies without writing to storage', async () => {
+  it('rejects caller-supplied camel-case tenant identity without writing to storage', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication,
-      body: { ...requestBody, client_id: 'spoofed-client' },
+      clientId,
+      body: { ...requestBody, clientId: 'spoofed-client' },
       defaultDestinationUrl: 'https://93.184.216.34/default',
       database: createDatabase(upsertEvent),
     });
@@ -101,7 +97,7 @@ describe('handleIngestion', () => {
   it('rejects unsafe supplied destinations without writing to storage', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication,
+      clientId,
       body: { ...requestBody, destination_url: 'https://127.0.0.1/hooks' },
       defaultDestinationUrl: 'https://93.184.216.34/default',
       database: createDatabase(upsertEvent),
@@ -117,7 +113,7 @@ describe('handleIngestion', () => {
   it('uses and validates the configured fallback when destination is omitted', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication,
+      clientId,
       body: { idempotency_key: 'fallback-1', payload: null },
       defaultDestinationUrl: 'https://93.184.216.34/configured',
       database: createDatabase(upsertEvent),
@@ -130,7 +126,7 @@ describe('handleIngestion', () => {
   it('returns a configuration error for an unsafe fallback without writing', async () => {
     const upsertEvent = vi.fn(async (event: WebhookEvent) => ({ event, inserted: true }));
     const result = await handleIngestion({
-      authentication,
+      clientId,
       body: { idempotency_key: 'fallback-2', payload: null },
       defaultDestinationUrl: 'https://169.254.169.254/latest',
       database: createDatabase(upsertEvent),
@@ -162,7 +158,7 @@ describe('handleIngestion', () => {
     };
     const upsertEvent = vi.fn(async () => ({ event: acceptedEvent, inserted: false }));
     const result = await handleIngestion({
-      authentication,
+      clientId,
       body: requestBody,
       defaultDestinationUrl: 'https://93.184.216.34/default',
       database: createDatabase(upsertEvent),
@@ -186,7 +182,7 @@ describe('handleIngestion', () => {
     );
     await expect(
       handleIngestion({
-        authentication,
+        clientId,
         body: requestBody,
         defaultDestinationUrl: 'https://93.184.216.34/default',
         database: failingAdapter,
@@ -214,10 +210,7 @@ describe('handleIngestion with SQLite', () => {
     const resultSets = await Promise.all(
       Array.from({ length: 1000 }, (_, index) =>
         handleIngestion({
-          authentication: {
-            authenticated: true,
-            clientId: `client-${(index % 100) % 10}`,
-          },
+          clientId: `client-${(index % 100) % 10}`,
           body: {
             idempotency_key: `concurrent-key-${Math.floor((index % 100) / 10)}`,
             payload: { submission: index },
@@ -263,9 +256,9 @@ describe('handleIngestion with SQLite', () => {
     }
   });
 
-  it('keeps idempotency keys isolated by authenticated tenant', async () => {
+  it('keeps idempotency keys isolated by configured tenant identity', async () => {
     const otherTenantResult = await handleIngestion({
-      authentication: { authenticated: true, clientId: 'client-2' },
+      clientId: 'client-2',
       body: {
         idempotency_key: 'shared-key',
         payload: { tenant: 2 },
@@ -275,7 +268,7 @@ describe('handleIngestion with SQLite', () => {
       database: adapter,
     });
     const originalTenantResult = await handleIngestion({
-      authentication,
+      clientId,
       body: {
         idempotency_key: 'shared-key',
         payload: { tenant: 1 },

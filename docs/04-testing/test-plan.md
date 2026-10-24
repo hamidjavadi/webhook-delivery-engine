@@ -42,11 +42,11 @@ active, cutoff-equal, and non-processing rows unchanged. Poll-loop invocation
 is deferred to WBS 4.1.
 WBS 3.1 API-key authentication is superseded and is not part of the current v1
 test scope; its completed test results remain below as historical evidence.
-For Task 3.4, verify engine creation requires no API key, binds the configured
-`clientId`, and stamps it onto accepted events. Reject caller-supplied tenant
-identity and confirm query methods remain scoped to that configured identity.
-Verify the host boundary is documented as responsible for access control if it
-exposes ingestion to external callers.
+WBS 3.4 verifies engine creation requires no API key, binds the configured
+`clientId`, and stamps it onto accepted events. It rejects caller-supplied
+tenant identity and confirms query methods remain scoped to that configured
+identity. The host boundary is documented as responsible for access control if
+it exposes ingestion to external callers.
 For Task 3.2, verify the ingestion schema accepts only `idempotency_key`,
 JSON `payload`, and optional `destination_url`; malformed/missing fields and
 unknown keys are rejected. Verify only absolute HTTPS URLs without credentials
@@ -141,8 +141,8 @@ are reported through the scheduler callback seam.
   each report 100% lines, statements, functions, and branches through
   `node scripts/check-claim-coverage.mjs`.
 - These measurements predate the v1 scope change. WBS 7.1 coverage and the
-  ingestion benchmark must be rerun after WBS 3.4 replaces the authentication
-  path with configured tenant identity/isolation.
+  ingestion benchmark were rerun after WBS 3.4 replaced authentication with
+  configured tenant identity/isolation; the new results follow below.
 - **Ingestion p95:** `pnpm benchmark:ingestion` measured 500 requests per round
   after 100 warm-ups. Nearest-rank p95 values were 0.3059 ms, 0.2477 ms, and
   0.2283 ms; median p95 was 0.2477 ms against the <50 ms target. The fetch
@@ -251,8 +251,8 @@ are reported through the scheduler callback seam.
   runs pass.
 
 - **Unit/contract:** Compile-time structural fixtures and small deterministic
-  Vitest assertions in `tests/core/contracts.test.ts`. Existing API-key tests
-  are historical and will be removed or replaced as part of WBS 3.4.
+  Vitest assertions in `tests/core/contracts.test.ts`. API-key tests are kept
+  only as historical results; WBS 3.4 provides host-configured identity tests.
 - **Integration:** Node's built-in `node:sqlite` continues to verify the runner;
   better-sqlite3 adapter tests use isolated temporary on-disk databases with
   the native driver and real schema. No external DB service or credentials are
@@ -285,9 +285,9 @@ are reported through the scheduler callback seam.
 | Recovery uses the 90-second minimum when timeout is at or below 60 seconds and uses timeout + 30 seconds above that boundary | `src/storage/sqlite.adapter.test.ts` |
 | Recovery returns only strictly expired processing leases to retry, clears lease fields, and schedules retry 10 seconds after supplied now | `src/storage/sqlite.adapter.test.ts` |
 | Active leases, cutoff-equal leases, and non-processing rows remain unchanged; invalid recovery inputs reject without partial writes | `src/storage/sqlite.adapter.test.ts` |
-| Engine creation requires no API key and binds the configured `clientId` to ingestion and query methods | WBS 3.4 engine and ingestion tests (pending) |
-| Accepted events use the configured tenant identity; caller-supplied identity fields are rejected | WBS 3.4 handler and integration tests (pending) |
-| Cross-tenant/unknown event lookups return the same not-found result within the configured tenant scope | WBS 3.4 query and SQLite integration tests (pending) |
+| Engine creation requires no API key and binds the configured `clientId` to ingestion and query methods | `src/index.test.ts`, `src/app/embedded.test.ts` |
+| Accepted events use the configured tenant identity; caller-supplied identity fields are rejected | `src/features/ingestion/ingestion.handler.test.ts`, `src/index.test.ts` |
+| Cross-tenant/unknown event lookups return the same not-found result within the configured tenant scope | `src/index.test.ts`, `src/storage/sqlite.adapter.test.ts` |
 | Ingestion body accepts exactly the documented fields and JSON-compatible payload | WBS 3.2 schema unit tests |
 | Destination URL rejects non-HTTPS, malformed, or credential-bearing URLs | WBS 3.2 URL validation tests |
 | Unsafe IPv4/IPv6 literals and any unsafe DNS answer are rejected, including mapped and mixed DNS results | WBS 3.2 SSRF unit tests |
@@ -556,10 +556,9 @@ completion, append actual command results and the Go/No-Go decision here.
 ### Task 3.1 Results — Superseded API-Key Authentication (Historical)
 
 These results document the previously implemented API-key authentication
-contract and its tests. That contract is superseded for v1; WBS 3.4 removes the
-API-key path and must add replacement tenant-identity coverage. The results
-below are retained as historical execution evidence, not as current v1
-acceptance evidence.
+contract and its tests. That contract is superseded for v1 and its implementation
+and tests have been removed. The results below are retained as historical
+execution evidence, not as current v1 acceptance evidence.
 
 - **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
 - **TDD red check:** `pnpm exec vitest run src/security/auth.test.ts` failed
@@ -579,8 +578,8 @@ acceptance evidence.
   `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
 - **Formatting/diff:** Prettier check and `git diff --check` passed.
 - **Open bugs/limitations:** No defects were identified in the historical
-  authentication primitive. The primitive is outside current v1 scope and its
-  removal is pending under WBS 3.4.
+  authentication primitive. The primitive is outside current v1 scope and has
+  been removed under WBS 3.4.
 - **Go/No-Go:** Historical go for WBS Task 3.1 only; not a current v1 scope
   approval.
 
@@ -631,11 +630,39 @@ acceptance evidence.
 - **Build/type-check/lint:** `pnpm run build`,
   `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm run lint` passed.
 - **Formatting/diff:** Prettier checks and `git diff --check` passed.
-- **Limitations:** This task's results include the former authenticated-handler
-  contract. WBS 3.4 must remove that dependency and verify host-configured
-  identity; raw request parsing remains outside the product scope.
+- **Limitations:** These results include the former authenticated-handler
+  contract; WBS 3.4 results below record its replacement. Raw request parsing
+  remains outside the product scope.
 - **Go/No-Go:** Historical go for the WBS 3.3 implementation under its former
-  contract. Current v1 identity behavior remains pending WBS 3.4.
+  contract.
+
+### Task 3.4 Results — Host-Owned Ingestion Identity
+
+- **Environment:** Node.js v24.16.0; Vitest 3.2.7; SQLite via better-sqlite3.
+- **TDD red check:** The first focused run after updating tests to remove
+  `apiKey` failed as expected: the embedded factory still required the option,
+  and the handler still expected an authentication result. A first full
+  coverage run then measured 94.44% branches for `src/app/embedded.ts`, below
+  its 95% gate; a configured-client validation test closed the missing branch.
+- **Final tests:** `pnpm exec vitest run --coverage` passed (19 files, 384
+  tests). Coverage includes keyless engine creation, configured `clientId`
+  stamping, rejection of caller-supplied identity, tenant-scoped reads,
+  idempotency/replay behavior, and the 1,000-submission SQLite concurrency
+  test. Obsolete internal HTTP/authentication tests were removed with those
+  unsupported modules.
+- **Coverage:** 98.46% lines/statements, 99.06% functions, and 95.49% branches
+  overall. `src/app/embedded.ts` measured 100% lines/statements/functions and
+  95.89% branches; `src/features/ingestion/ingestion.handler.ts` measured
+  100% in all four dimensions.
+- **Ingestion benchmark:** `pnpm benchmark:ingestion` measured 1,500 requests
+  after 100 warm-ups. Median round p95 was 0.23972 ms against the 50 ms target;
+  zero dispatch attempts occurred, and the benchmark passed.
+- **Build/type-check/lint:** `pnpm build`,
+  `pnpm exec tsc --noEmit --project tsconfig.json`, and `pnpm lint` passed.
+- **Limitations:** Generic logger redaction for API-key-like field names is
+  retained as defense in depth. External transport and caller authentication
+  remain the host application's responsibility.
+- **Go/No-Go:** Go for WBS 3.4 implementation and verification.
 
 ### Task 5.4 Results
 

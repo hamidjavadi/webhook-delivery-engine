@@ -19,10 +19,9 @@ The supported v1 package interface is programmatic; it does not provide REST
 endpoints or authenticate external ingestion callers. The host controls access
 to the engine instance and must provide its own authentication and authorization
 if it exposes an external interface. The engine binds its configured `clientId`
-to ingested events. WBS 3.4, which removes the legacy API-key requirement from
-the implementation, remains pending; the package is not aligned with this
-target until that work is complete and verified. Scheduler polling and
-stale-lease recovery run after the host has awaited `engine.start()`.
+to ingested events. WBS 3.4 is implemented and locally verified; engine configuration
+and programmatic ingestion do not require API-key authentication. Scheduler
+polling and stale-lease recovery run after the host has awaited `engine.start()`.
 
 Ingestion validates the configured destination before persistence, and the
 dispatcher revalidates and pins the resolved address when connecting. Redirects
@@ -38,8 +37,8 @@ must be disabled or validated against the same destination policy.
   the database on a filesystem that does not support SQLite locking semantics.
 - Runtime configuration supplied to the factory by the host application,
   including the SQLite location, configured `clientId`, default destination,
-  delivery signing secret, and worker/retry settings. The v1 interface does not
-  require an API-key ingestion credential after WBS 3.4 is complete.
+  delivery signing secret, and worker/retry settings. The v1 interface has no
+  API-key ingestion credential.
 - The host application must await `engine.start()` before using engine methods
   and await `engine.stop()` during shutdown. It owns SIGINT/SIGTERM handlers.
 - For production data, a verified database backup and an operator authorized
@@ -62,7 +61,8 @@ For a development/release-candidate package build:
    `clientId` without an API key, start it, enqueue and query an event, verify
    the configured tenant identity is used and caller-supplied identity is
    rejected, stop it, and verify migrations, dispatch, and resource cleanup.
-   Do not approve release while WBS 3.4 or its verification remains open.
+   Confirm the packaged interface still creates an engine without an API key
+   and scopes event reads to its configured `clientId` before release approval.
 5. Publish to the public npm registry only after package validation, review,
    and release approval. A consuming host configures persistent storage and
    secrets, then awaits engine start/stop as part of its own lifecycle.
