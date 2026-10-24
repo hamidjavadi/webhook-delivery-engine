@@ -34,13 +34,17 @@ The SQLite driver includes a native module. Package managers that block dependen
 
 Create and start an engine instance in the host application:
 
+> **Implementation status:** This example shows the approved v1 interface.
+> WBS 3.4 is still pending, and the current implementation still requires the
+> legacy `apiKey` option. The example will match the package after WBS 3.4 is
+> implemented and verified.
+
 ```ts
 import { createWebhookEngine } from 'webhook-delivery-engine';
 
 const engine = createWebhookEngine({
   databasePath: './data/webhook-delivery-engine.db',
   clientId: 'billing-service',
-  apiKey: process.env.WEBHOOK_API_KEY!,
   hmacSecret: process.env.WEBHOOK_HMAC_SECRET!,
   defaultDestinationUrl: 'https://consumer.example/hooks',
   config: {
@@ -63,7 +67,9 @@ try {
 }
 ```
 
-The configured `clientId` is bound to the engine. `logLevel` optionally sets the structured logger threshold; otherwise the package uses `LOG_LEVEL` or `info`. Structured JSON records go to standard output, and sensitive credential, payload, and request fields are redacted. `start()` applies SQLite migrations before accepting API calls. `stop()` stops polling, releases claims that have not begun dispatch, waits for started delivery work, and closes the database. The host application owns its HTTP listener and process signal handlers.
+The host-configured `clientId` is bound to the engine and stamped on ingested events; callers cannot choose another tenant identity. The host process is the trusted caller, so the library does not authenticate individual `enqueue()` calls. If the host exposes an external interface, it must enforce authentication and authorization there. `logLevel` optionally sets the structured logger threshold; otherwise the package uses `LOG_LEVEL` or `info`. Structured JSON records go to standard output, and sensitive credentials, payloads, and request fields are redacted. `start()` applies SQLite migrations before accepting engine method calls. `stop()` stops polling, releases claims that have not begun dispatch, waits for started delivery work, and closes the database. The host application owns its process and any HTTP listener.
+
+The supported package interface is the TypeScript library. The package root does not expose REST endpoints or an HTTP server; applications that need HTTP routes must implement them in the host and call the library methods.
 
 ## Development
 

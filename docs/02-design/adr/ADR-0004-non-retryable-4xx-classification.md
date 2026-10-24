@@ -72,7 +72,7 @@ When an outbound delivery results in a **Non-Retryable 4xx** status code:
 ### Negative / Risks
 
 - **False Positives during Deploys:** If a consumer endpoint temporarily returns 404 or 403 during a zero-downtime deployment rolling update, the webhook event will permanently fail instead of retrying.
-- **Mitigation:** Document clearly that consumer endpoints must maintain high availability and URL stability, and provide idempotency replay (`POST /webhooks` with same `idempotency_key`) if manual redelivery is required after fixing endpoint configuration.
+- **Mitigation:** Document clearly that consumer endpoints must maintain high availability and URL stability; use the programmatic ingestion interface with the same `idempotency_key` for replay if manual redelivery is required after fixing endpoint configuration.
 
 ## Migration/Review Plan and References
 
@@ -80,5 +80,5 @@ When an outbound delivery results in a **Non-Retryable 4xx** status code:
 - **Testing:** Unit and integration tests added to verify that 400, 401, 403, 404, 410, 422, and other unlisted 4xx immediately transition events to `failed` with `outcome='exhausted'`, while 429 and 5xx schedule retries with full jitter.
 - **References:**
   - [`PRD.md`](../../01-plan/PRD.md) (§4 Functional Requirements FR-17)
-  - [`SDD.md`](../SDD.md) (§5.5 Outbound Delivery Contract, §7.2 Failure Modes, §10 Options and Trade-offs)
+  - [`SDD.md`](../SDD.md) (§5.1 Outbound Delivery Contract, §7.2 Failure Modes, §10 Options and Trade-offs)
   - [`scope.md`](../../01-plan/scope.md) (§2 In-Scope Delivery Engine behavior)

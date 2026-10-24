@@ -6,7 +6,7 @@
 | **Owner**    | Product Engineer (Hamid Javadi)          |
 | **Date**     | 2026-10-15                               |
 | **Version**  | 1.0.0                                    |
-| **Template** | `templates/PRD-template.md` (agents.zip) |
+| **Template** | `.agent-rules/templates/PRD-template.md` |
 
 ---
 
@@ -39,12 +39,12 @@ Systems that emit webhooks to external consumers currently fail silently or lose
 
 ### 2.3 Desired Outcome
 
-A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
+A lightweight, embeddable Node.js & TypeScript library that:
 
 - accepts webhook events idempotently,
 - persists events and per-attempt state in SQLite for v1.0.0,
 - retries failed deliveries with bounded exponential backoff + jitter,
-- signs and authenticates deliveries (HMAC SHA-256) and authenticates ingestion clients (API key, constant-time comparison),
+- signs outbound deliveries with HMAC SHA-256 and attributes ingested events to the host-configured client,
 - exposes full attempt observability and configuration (timeout, max attempts).
 
 ---
@@ -53,10 +53,10 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 
 | #   | User / Persona                                 | Context                                     | Needs                                                                                                                                                     | Pain Today                                             |
 | --- | ---------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| U1  | **Backend developer integrating the library**  | Embeds the engine in a Node.js ≥ 24 service | Simple programmatic + HTTP API to enqueue events; idempotency by client-scoped `idempotency_key`; typed TS API                                            | No off-the-shelf durable retry; hand-rolled retry code |
+| U1  | **Backend developer integrating the library**  | Embeds the engine in a Node.js ≥ 24 service | Simple typed methods to enqueue events; idempotency by client-scoped `idempotency_key`                                                                  | No off-the-shelf durable retry; hand-rolled retry code |
 | U2  | **Ops / SRE engineer**                         | Monitors delivery health                    | Visibility into event states, attempt history, response codes, timestamps; ability to cap attempts and timeouts via config                                | No audit trail; cannot diagnose failed deliveries      |
-| U3  | **Webhook consumer (external endpoint owner)** | Receives deliveries at `WEBHOOK_URL`        | Reliable, ordered-enough delivery; Verifiable authenticity and the system-generated event `id` (header and body) that consumers can use for deduplication | Duplicates and unauthenticated deliveries              |
-| U4  | **Platform / API client**                      | Pushes events into the ingestion endpoint   | Simple, secure authentication (API key), fast acceptance (202-style async), clear idempotency semantics                                                   | Ad-hoc auth; no dedup guarantee                        |
+| U3  | **Webhook consumer (external endpoint owner)** | Receives deliveries at `WEBHOOK_URL`        | Reliable, ordered-enough delivery; verifiable authenticity and the system-generated event `id` (header and body) that consumers can use for deduplication | Duplicates and forged deliveries                       |
+| U4  | **Host application developer**                  | Calls the embedded engine from its process  | Simple programmatic ingestion with stable idempotency results; host controls which code can call the engine                                           | Durable delivery without an external ingestion service |
 | U5  | **DBA / infrastructure owner**                 | Runs SQLite    | Engine works with safe concurrent claiming and manageable SQLite single-writer locking | SQLite schema and locking behavior                     |
 
 **Primary needs summary:**
@@ -65,7 +65,7 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 - N2: Durable persistence of events and retry state across restarts.
 - N3: Bounded exponential backoff with jitter, configurable via global config.
 - N4: Concurrency-safe atomic claiming of due events across SQLite.
-- N5: Security — API-key-authenticated ingestion, HMAC SHA-256-signed deliveries.
+- N5: Security — host-owned in-process access, tenant identity fixed by engine configuration, and HMAC SHA-256-signed deliveries.
 - N6: Observability — per-attempt records (timestamp, HTTP status, error, latency).
 
 ---
@@ -78,10 +78,10 @@ A lightweight, embeddable Node.js & TypeScript library/HTTP service that:
 | G2  | **Idempotency:** Duplicate ingestion with the same `client_id` + `idempotency_key` pair creates exactly one delivery job.                                                                                                                                         | Duplicate ingestion test: unique jobs created / duplicate submissions           | **exactly 1** job per unique (`client_id`, `idempotency_key`) pair (≥ 1000-subject concurrency test passes)                                         | Sprint of implementation |
 | G3  | **Reliability of retries:** Transiently failing endpoint (5xx/timeout) is retried per bounded exponential backoff until `maxAttempts`.                                                                                                                            | Automated integration test with mock endpoint                                   | Retry schedule matches backoff spec ±jitter; no attempt beyond `maxAttempts`; 0 retries after terminal state                                        | Same sprint              |
 | G4  | **Concurrency safety:** Two or more workers never hold an active claim on the same due event simultaneously in SQLite. Under at-least-once semantics, duplicate outbound deliveries remain possible only across worker crashes/reclaims. | Parallel SQLite claim integration test                                          | **0** double-claims across ≥ 100 concurrent claims                                                                                                | Before DoD sign-off      |
-| G5  | **Security:** All ingestion requests require a valid API key (constant-time comparison) and all deliveries carry a valid HMAC SHA-256 signature; unauthenticated/forged traffic is rejected.                                                                      | Security test suite                                                             | 100% of requests without valid credentials rejected (401); signature verification test passes; timing analysis shows no secret-dependent early exit | Before DoD sign-off      |
-| G6  | **Performance:** Ingestion endpoint latency and background claiming remain lightweight for an embeddable library.                                                                                                                                                 | Load test                                                                       | p95 ingestion latency **< 50 ms** (SQLite local); claim loop overhead **< 10% CPU** at idle; throughput **≥ 200 events/s** ingestion                | Before v1.0.0            |
-| G7  | **Observability:** Any event's full lifecycle is queryable.                                                                                                                                                                                                       | API/report check                                                                | Attempt records include attempt number, timestamp, HTTP status/response, error, latency for **100%** of attempts                                    | Same sprint              |
-| G8  | **Quality:** Test coverage threshold met per master rules.                                                                                                                                                                                                        | Vitest coverage report                                                          | Overall **≥ 80%**; critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC) **≥ 95%**                                                  | Before DoD sign-off      |
+| G5  | **Security:** In-process ingestion uses the engine's configured tenant identity, rejects caller-supplied identity fields, and all deliveries carry a valid HMAC SHA-256 signature.                                                                                | Ingestion and signature security tests                                          | Caller cannot select another `client_id`; signature verification passes; signing secret is not exposed                                            | Before DoD sign-off      |
+| G6  | **Performance:** Programmatic ingestion latency and background claiming remain lightweight for an embeddable library.                                                                                                                                            | Load test                                                                       | p95 ingestion latency **< 50 ms** (SQLite local); claim loop overhead **< 10% CPU** at idle; throughput **≥ 200 events/s** ingestion                | Before v1.0.0            |
+| G7  | **Observability:** Any event's full lifecycle is queryable.                                                                                                                                                                                                       | Programmatic query check                                                        | Attempt records include attempt number, timestamp, HTTP status/response, error, latency for **100%** of attempts                                    | Same sprint              |
+| G8  | **Quality:** Test coverage threshold met per master rules.                                                                                                                                                                                                        | Vitest coverage report                                                          | Overall **≥ 80%**; critical paths (ingestion, atomic claim, retry scheduler, tenant isolation, HMAC) **≥ 95%**                                       | Before DoD sign-off      |
 
 **Success criteria (release gate):** G1–G5 and G7 fully met; G6 and G8 within stated thresholds; all acceptance criteria in §8 pass.
 
@@ -99,7 +99,7 @@ Table: `webhook_events` — one row per unique event (idempotency anchor).
 | ----------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`              | TEXT (PK)           | System-generated cryptographically secure UUID string; unique per row and not the client-supplied idempotency key. |
 | `idempotency_key` | String               | Client-supplied idempotency key; uniqueness is enforced per client via UNIQUE(`client_id`, `idempotency_key`).                                    |
-| `client_id`       | String               | ID of the authenticated client/tenant that ingested the event.                                                                                    |
+| `client_id`       | String               | Tenant identity configured by the host for this engine instance and stamped on ingested events.                                                  |
 | `destination_url` | String / Text        | Fully qualified HTTPS URL of the destination endpoint.                                                                                            |
 | `payload`         | Text / JSON          | Event body/payload to be delivered.                                                                                                               |
 | `metadata`        | Text / JSON          | Immutable JSON metadata associated with the event.                                                                                                |
@@ -143,12 +143,12 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 
 - MUST be readable by the scheduler on every cycle (hot-reload or per-cycle fetch) so ops can tune without redeploy.
 - MUST be validated at load time (positive integers; `maxAttempts` ≥ 1).
-- MAY be exposed via admin API (in-scope if trivial; otherwise env/file config only).
+- MUST be supplied by the host through the engine configuration; no admin interface is provided.
 
 ### 5.4 Idempotent Ingestion
 
 - **FR-1 (MUST):** Ingesting an event with an existing (`client_id`, `idempotency_key`) pair MUST NOT create a second delivery job. The event `id` is system-generated and unique; idempotency is enforced by UNIQUE(`client_id`, `idempotency_key`) — the same `idempotency_key` submitted by different clients MUST be treated as distinct events. SQLite implements this with a single-statement atomic upsert against that unique constraint, returning whether the row was newly inserted.
-- **FR-2 (MUST):** Response MUST return both identifiers — the system-generated `id` and the accepted `idempotency_key` — and MUST indicate accepted-new vs. duplicate-accepted (e.g., 202 with `idempotent_replay: true|false`) so producers can detect replays and consumers can dedupe by `id`.
+- **FR-2 (MUST):** The ingestion result MUST return both identifiers — the system-generated `id` and the accepted `idempotency_key` — and MUST indicate accepted-new vs. duplicate-accepted with `idempotent_replay: true|false` so producers can detect replays and consumers can dedupe by `id`.
 
 ### 5.5 SQLite Atomic Claim
 
@@ -157,14 +157,12 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - **FR-5 (MUST):** Claimed events MUST be recoverable: if a worker crashes mid-delivery, the SQLite adapter MUST atomically return `processing` events whose `locked_at` is strictly older than `now - max(timeoutLimitMs + 30000 ms, 90000 ms)` to `retry`, clear `locked_at`/`locked_by`, and set `next_retry_at` to `now + 10000 ms`. The caller supplies one validated UTC `now`; the adapter validates `timeoutLimitMs`. A scheduler poll loop invokes recovery once per cycle when implemented under WBS 4.1.
 - **FR-6 (MUST):** On delivery success → `status='delivered'`; on retryable failure with attempts < `maxAttempts` → `status='retry'` and `next_retry_at` set by backoff; on non-retryable failure or retryable failure with attempts ≥ `maxAttempts` → `status='failed'` with the final attempt row `outcome='exhausted'`.
 
-#### 5.6 API Key Authentication & Access Control (Ingestion) — Constant-Time Comparison
+#### 5.6 Host-Owned Ingestion Identity
 
-- **FR-7 (MUST):** All ingestion endpoints MUST require an API key passed via standard headers (e.g., `Authorization: Bearer <token>` or `x-api-key: <token>`).
-- **FR-8 (MUST):** Secret validation MUST use constant-time comparison via `crypto.timingSafeEqual` (over equal-length derived buffers or fixed-length HMAC hashes) to prevent timing attacks. Direct equality operators (`===`, `==`) on secrets MUST NOT be used. Constant-time checks MUST apply uniformly with no early content-based exits.
-- **FR-9 (MUST):** Missing or invalid API keys MUST return HTTP `401 Unauthorized` immediately.
-- **FR-10 (MUST):** Upon successful authentication, the engine MUST resolve the authenticated caller’s associated `client_id` and persist it into the `client_id` column of the `webhook_events` record during ingestion. This guarantees multi-tenant auditability and tenant-level data isolation.
-
-**v1 authentication configuration:** One configured API key is associated with one configured `clientId`. Successful authentication returns that identity to the caller; missing or invalid credentials produce the same unauthorized outcome. Runtime client registration, key registries, key rotation APIs, and per-tenant key management are deferred to v2.0.0.
+- **FR-7 (MUST):** The v1 embedded library MUST accept ingestion through its in-process programmatic interface without requiring an API key on each call.
+- **FR-8 (MUST):** The engine MUST use the `clientId` configured by the host when creating the engine; callers MUST NOT be able to select or override the event's `client_id` through ingestion input.
+- **FR-9 (MUST):** The engine MUST stamp every accepted event with that configured `clientId`, preserving client-scoped idempotency and tenant-scoped reads.
+- **FR-10 (MUST):** The host application is responsible for controlling access to the process and code that holds the engine instance. The embedded library does not provide an external caller authentication or authorization interface in v1.
 
 ### 5.7 HMAC SHA-256 Signing (Outbound Delivery)
 
@@ -181,10 +179,10 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
   - **Non-retryable (terminal fail):** 400 (Bad Request), 401 (Unauthorized), 403 (Forbidden), 404 (Not Found), 410 (Gone), 422 (Unprocessable Entity), and other unlisted 4xx responses. These errors are immediately recorded as `failed` with an audit row whose `outcome` is `exhausted`; no further delivery retries are scheduled.
   - **Retryable (with backoff + jitter):** 429 (Too Many Requests), 408 (Request Timeout), 409 (Conflict), 5xx responses, and transport/timeouts. These errors are retried with exponential backoff and full jitter until `maxAttempts` is exhausted; terminal failures use `outcome='exhausted'`.
 
-### 5.9 Ingestion API & Observability
+### 5.9 Programmatic Ingestion & Observability
 
-- **FR-18 (MUST):** Ingestion accepts a parsed request containing `idempotency_key` + JSON `payload`, plus optional `destination_url` falling back to configured `WEBHOOK_URL`. Authenticated `client_id` is server-derived; clients MUST NOT supply identity, event id, or timestamps. The strict request schema rejects missing/invalid required fields and unknown fields. On acceptance, the application returns status `202` with system `id`, `idempotency_key`, `idempotent_replay: true|false`, and `status: "pending"`; HTTP route/transport mapping is separate from the ingestion handler. A malformed or unsafe configured fallback is a server configuration error (`500`), not a caller URL error (`422`), and must not persist an event.
-- **FR-19 (MUST):** Endpoints to query event status and attempt history (list events by status; get event with attempts), addressable by the system-generated id and/or idempotency_key. All read endpoints MUST strictly enforce tenant isolation by scoping database queries to the authenticated client_id (WHERE id = :id AND client_id = :authClientId). Any request attempting to access an event belonging to another client MUST return HTTP 404 Not Found to prevent metadata leakage and Broken Object Level Authorization (BOLA/IDOR).
+- **FR-18 (MUST):** The embedded library accepts ingestion input containing `idempotency_key` and JSON `payload`, plus optional `destination_url` falling back to configured `WEBHOOK_URL`. `client_id` is derived from engine configuration; callers MUST NOT supply identity, event id, or timestamps. The strict input schema rejects missing/invalid required fields and unknown fields. On acceptance, the result includes system `id`, `idempotency_key`, `idempotent_replay: true|false`, and `status: "pending"`. A malformed or unsafe configured fallback is a configuration error and must not persist an event.
+- **FR-19 (MUST):** The embedded library provides methods to query event status and attempt history (list events by status; get an event with attempts), addressable by system-generated id and/or idempotency key. All reads MUST strictly enforce tenant isolation by scoping database queries to the configured `client_id` (`WHERE id = :id AND client_id = :configuredClientId`). A query for an event belonging to another client MUST return the same not-found result as an unknown event to prevent metadata leakage and BOLA/IDOR.
 - **FR-20 (SHOULD):** Structured logging (`LOG_LEVEL`) of lifecycle transitions.
 - **FR-21 (MUST):** The claim scheduler runs poll cycles using the configured
   interval, batch size, worker concurrency, and request timeout. Each cycle
@@ -201,13 +199,13 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 
 ### 6.1 Security
 
-- NFR-S1 (MUST): API key auth with **constant-time** comparison on every protected route (§5.6).
+- NFR-S1 (MUST): The library exposes ingestion only through its in-process engine interface; host applications control access to the engine instance and configured tenant identity (§5.6).
 - NFR-S2 (MUST): HMAC SHA-256 signatures with timestamp on all outbound deliveries (§5.7).
-- NFR-S3 (MUST): Secrets (API key, HMAC secret, DB credentials) only via environment/config; never logged, never in VCS.
+- NFR-S3 (MUST): Secrets (HMAC secret, DB credentials) only via environment/config; never logged, never in VCS.
 - NFR-S4 (MUST): SQLite data access exclusively uses parameterized statements/prepared statements (no string-concatenated SQL).
-- NFR-S5 (SHOULD): Rate limiting on ingestion (basic fixed-window) to protect the embedded DB.
+- NFR-S5 (SHOULD): The host may apply call-rate controls around ingestion to protect the embedded database; the library provides no external rate-limiting interface in v1.
 - NFR-S6 (MUST): **SSRF Protection:** The engine MUST accept only absolute HTTPS destination URLs without embedded credentials. Before dispatch, it MUST resolve hostnames and reject a URL if any resolved IPv4 or IPv6 address is loopback, unspecified, private (including RFC 1918 and IPv6 unique-local), link-local, multicast, reserved, or a cloud metadata target (including `169.254.169.254`). IPv4-mapped IPv6 addresses MUST be checked as their embedded IPv4 address. Literal IPs MUST be checked without DNS. The dispatcher MUST repeat address validation at connection time to reduce DNS-rebinding risk.
-- NFR-S7 (MUST): **Tenant Isolation & BOLA/IDOR Prevention:** Although system-generated `id`s are returned upon ingestion and are cryptographically random/non-enumerable, the engine MUST enforce strict multi-tenant boundary checks on all state-retrieval APIs. No event or attempt audit record shall ever be read or mutated without matching the authenticated caller's `client_id`.
+- NFR-S7 (MUST): **Tenant Isolation & BOLA/IDOR Prevention:** Although system-generated `id`s are returned upon ingestion and are cryptographically random/non-enumerable, the engine MUST enforce strict tenant boundary checks on all state-retrieval methods. No event or attempt audit record shall ever be read or mutated without matching the configured `client_id`.
 
 ### 6.2 Performance
 
@@ -230,7 +228,7 @@ Persisted/managed configuration consumed by the scheduler and delivery worker:
 - NFR-C1 (MUST): Node.js ≥ 24.x; TypeScript (strict) per README prerequisites.
 - NFR-C2 (MUST): v1.0.0 supports SQLite (`DATABASE_URL`) through the internal database-adapter interface; PostgreSQL and MySQL support are deferred to v2.0.
 - NFR-C3 (MUST): The v1.0.0 schema and migrations are provided for SQLite; PostgreSQL and MySQL schemas are deferred to v2.0.
-- NFR-C4 (SHOULD): Runs embedded (library import) and as a standalone HTTP service (`pnpm dev`).
+- NFR-C4 (SHOULD): Runs embedded as a library import in a host Node.js process.
 - NFR-C5 (MAY): Package Manager pnpm or npm; Vitest test runner (per README scripts).
 
 _(Accessibility/privacy: not applicable to an embeddable backend library; data security is governed by parameterized queries and strict secret isolation.)_
@@ -242,22 +240,23 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 ### 7.1 In-Scope (v1)
 
 - SQLite schema and migrations for `webhook_events` and `webhook_event_attempts`.
-- Idempotent event ingestion (single-statement upsert on UNIQUE(`client_id`, `idempotency_key`)) via HTTP API and programmatic API; system-generated event `id` returned alongside the client-supplied `idempotency_key`.
+- Idempotent event ingestion (single-statement upsert on UNIQUE(`client_id`, `idempotency_key`)) through the embedded library; system-generated event `id` returned alongside the client-supplied `idempotency_key`.
 - SQLite database adapter using atomic conditional updates for concurrency safety.
 - Delivery worker with per-delivery HTTP timeout (`timeoutLimitMs`).
 - Bounded exponential backoff with full jitter; terminal `failed` state at `maxAttempts`.
-- API key authentication with constant-time comparison.
+- Host-configured client identity applied to all ingested events; no per-call API-key authentication in the embedded v1 interface.
 - HMAC SHA-256 request signing with timestamp on all outbound deliveries.
-- Attempt audit logging (`webhook_event_attempts`) and status/history query endpoints.
+- Attempt audit logging (`webhook_event_attempts`) and programmatic status/history queries.
 - Structured logging, Vitest unit + integration suites (including SQLite concurrency and security tests), README/docs updates.
 - **Concurrency Test:** Automated harness simulating ≥1,000 concurrent submissions with ≥100 parallel SQLite workers; exactly 1 job per tenant-key pair and 0 concurrent double-claims under at-least-once semantics.
 
 ### 7.2 Out-of-Scope (v1)
 
-- Runtime client registration and multi-client dispatch configuration. v1 supports one configured client per engine instance; clients requiring separate credentials and HMAC secrets must use separately isolated database files. Host-managed runtime registration is planned for v2.0.0.
+- Runtime client registration and multi-client dispatch configuration. v1 supports one configured client per engine instance; separate tenant identities and HMAC secrets require separately isolated engine/database configurations. Host-managed runtime registration is planned for v2.0.0.
 - Per-tenant configuration and retry policies; v1 uses global configuration only.
 - Admin UI / dashboard; metrics export to Prometheus/OTel (log-based observability only).
-- Dead-letter re-drive / manual replay tooling (data model supports future re-drive, but no v1 endpoint).
+- REST endpoint server and route registration; callers use the embedded TypeScript library. The host may provide its own interface around the library.
+- Dead-letter re-drive / manual replay tooling (data model supports future re-drive, but no v1 interface).
 - Priority or ordering guarantees between events (per-event delivery only).
 - Horizontal multi-node scheduling coordination beyond what the atomic claim guarantees.
 - Non-HTTP transports (queues, gRPC), webhooks signing schemes other than HMAC SHA-256.
@@ -270,19 +269,19 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 
 | ID   | Criterion (Given/When/Then)                                                                                                                                                                                                                                                                            | Verification                                                   |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| AC1  | Given a valid parsed request and authenticated (`client_id`, `idempotency_key`) pair, when ingested, then a single `webhook_events` row with a system-generated unique `id` and `status='pending'` exists, and the application result returns status `202`, both identifiers, `idempotent_replay=false`, and pending status. An omitted destination uses the configured `WEBHOOK_URL`, which receives the same URL validation. | Ingestion/SQLite integration test |
+| AC1  | Given valid ingestion input and a configured `clientId`, when the host calls the engine, then a single `webhook_events` row with that configured `client_id`, a system-generated unique `id`, and `status='pending'` exists, and the programmatic result returns both identifiers, `idempotent_replay=false`, and pending status. An omitted destination uses the configured `WEBHOOK_URL`, which receives the same URL validation. | Ingestion/SQLite integration test |
 | AC2  | Given the same (`client_id`, `idempotency_key`) pair ingested N≥2 times (including concurrently), then exactly one delivery job exists, every result returns its same system id, subsequent calls are flagged `idempotent_replay=true`, and replay does not overwrite the accepted event; the same key from a different `client_id` creates a separate event. | Concurrency test, ≥1000 parallel submissions |
 | AC3  | Given two or more workers claiming due events simultaneously in SQLite, then a single atomic conditional `UPDATE ... RETURNING` statement claims only due rows and no event is concurrently claimed by more than one worker; each due claim yields exactly one in-flight dispatch attempt.                                                                 | SQLite cross-process parallel claim integration test (G4, ADR-0001) |
 | AC4  | Given a delivery failing with 500/timeout, then the event transitions `pending→processing→retry`, an attempt row is written, and `next_retry_at = now + random(0, min(1000·2^(n−1), 60000))`.                                                                                                          | Unit test on backoff math; integration test with mock endpoint |
 | AC5  | Given attempts reach `maxAttempts` (default 5), then the event becomes `failed` and the last attempt row has `outcome='exhausted'`; no further deliveries occur.                                                                                                                                       | Integration test                                               |
 | AC6  | Given a delivery exceeding `timeoutLimitMs`, then the request aborts, an attempt row with error `timeout` is recorded, and retry is scheduled.                                                                                                                                                         | Integration test with slow mock endpoint                       |
-| AC7  | Missing or invalid API keys produce the same `401` result; a valid configured key resolves its configured `clientId`. Comparison uses fixed-length SHA-256 digests and `crypto.timingSafeEqual`; raw credentials are never logged.                                                                                                                         | Security tests for missing/invalid/valid and unequal-length credentials + code inspection |
+| AC7  | In-process ingestion requires no API key; accepted events use the engine's configured `clientId`, and caller-supplied identity fields are rejected.                                                                                                                                                  | Engine and ingestion tests |
 | AC8  | Given any outbound delivery, then headers contain `x-webhook-signature: sha256=<hex>` and timestamp; recomputing HMAC SHA-256 over `timestamp.body` with the configured secret verifies the signature.                                                                                                 | Signature verification test                                    |
 | AC9  | Given a worker crash while an event is `processing`, then only after `max(timeoutLimitMs + 30000 ms, 90000 ms)` has elapsed is its lease reset atomically to `retry`, with lease fields cleared and `next_retry_at = now + 10000 ms`; active/equal-cutoff leases remain unchanged. | SQLite adapter boundary integration tests; poll-cycle invocation is WBS 4.1 |
 | AC10 | Given any attempt (success or failure), then `webhook_event_attempts` contains attempt number, timestamp, status code or error, and latency.                                                                                                                                                           | Query check                                                    |
 | AC11 | Given restart of the process, then all events/attempts/config persist and the scheduler resumes without unrecorded attempts or dropped events (in-flight events reclaimed per at-least-once semantics).                                                                                                | Restart integration test                                       |
-| AC12 | Given a tampered/forged request scenario (wrong key, unsigned delivery), it is rejected/absent — no unauthenticated ingress, no unsigned egress.                                                                                                                                                       | Security test suite (G5)                                       |
-| AC13 | Vitest suite passes; coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, auth, HMAC).                                                                                                                                                                        | `pnpm test` coverage report (G8)                               |
+| AC12 | Given caller-supplied tenant identity or an unsigned outbound delivery, the caller cannot create an event under another `client_id`, and the delivery is never sent unsigned.                                                                                                                      | Ingestion identity and signature security tests (G5) |
+| AC13 | Vitest suite passes; coverage ≥ 80% overall and ≥ 95% on critical paths (ingestion, atomic claim, retry scheduler, tenant isolation, HMAC).                                                                                                                                                               | `pnpm test` coverage report (G8)                               |
 | AC14 | Ingestion schema accepts only the documented request fields and JSON payload; destination validation accepts absolute HTTPS URLs without credentials, rejects malformed URLs and any hostname/IP resolving to blocked IPv4/IPv6 ranges (loopback, private, link-local, unspecified, multicast, reserved, or metadata), and performs no dispatch for rejected destinations. | Schema and SSRF security tests (NFR-S6) |
 | AC15 | Given a configured SQLite database, when the adapter is opened and used, then WAL and `busy_timeout=5000` are active; events and attempts round-trip with JSON text and ISO-8601 timestamps; adapter operations preserve tenant scoping, idempotency, lease ownership, and atomic attempt/state transitions. | better-sqlite3 integration tests |
 | AC16 | Given a delivery response with a non-retryable 4xx status (including unlisted 4xx codes), then the event transitions directly from `processing` to `failed`, an attempt audit row is recorded with `outcome='exhausted'`, and no retry is scheduled. | Delivery worker unit/integration tests |
@@ -296,7 +295,7 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 - **D1:** Node.js runtime ≥ 24.x; pnpm/npm; Vitest; TypeScript toolchain (per README).
 - **D2:** v1.0.0 uses `better-sqlite3`; PostgreSQL (`pg`) and MySQL (`mysql2`) drivers are deferred to v2.0.
 - **D3:** Consumer endpoint (`WEBHOOK_URL`) reachable over HTTPS and able to honor HMAC verification (verification itself is out of scope).
-- **D4:** Environment configuration available: `PORT`, `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`, `WEBHOOK_URL`, `API_KEY`, and `HMAC_SECRET`. v1.0 has no PostgreSQL/MySQL connection settings.
+- **D4:** Host configuration available: `NODE_ENV`, `LOG_LEVEL`, `DATABASE_URL`, `WEBHOOK_URL`, configured `clientId`, and `HMAC_SECRET`. v1.0 has no API-key ingestion credential or PostgreSQL/MySQL connection settings.
 - **D5:** Migration mechanism (hand-written SQL migrations or lightweight migrator) — selected at design checkpoint (ADR if non-trivial).
 
 ### 9.2 Assumptions (explicit, low-risk per master rules)
@@ -318,10 +317,10 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------ | ---------- | -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | **R1** | **SQLite concurrency bottlenecks** — single-writer locking causes `SQLITE_BUSY` or degrades claim throughput under parallel workers. | Medium | Medium | **Medium** | Core Eng | Worker logs report `SQLITE_BUSY` or claim latency spikes > 200ms. | Use `BEGIN IMMEDIATE` transactions, configure `busy_timeout = 5000ms`, and tune small batch sizes (NFR-P3). | Gracefully throttle polling; any database expansion requires a separately scoped v2.0 decision. |
 | **R2** | **SQLite atomic-claim regressions** — transaction or predicate changes permit duplicate claims. | Medium | High | **High** | Core Eng | SQLite multi-worker integration tests fail or duplicate delivery attempts appear in DB. | Validate the conditional `UPDATE` claim and lease ownership with concurrent SQLite tests (AC3). | Block release and fix the SQLite claim transaction before enabling workers. |
-| **R3** | **Timing-attack vulnerability in auth** — non-constant-time comparisons or buffer length mismatch leaks API key validity via side channels. | Low        | High   | **Medium** | Security / Eng | Code analysis flags direct comparisons (`===`) or length leaks in auth paths.                     | Use `crypto.timingSafeEqual` over equal-length SHA-256 pre-hashed buffers with no early exits; enforce strict security unit tests (AC7).                                 | Immediately patch with a cryptographic wrapper and invalidate exposed test API keys.                       |
+| **R3** | **Host exposes an embedded engine to untrusted callers** — host application code may allow untrusted users to invoke ingestion without its own authorization checks. | Low | High | **Medium** | Host App Owner | Untrusted input reaches engine methods without host authorization or validation. | Keep the engine in the host process and enforce any caller authentication/authorization at the host-owned boundary; the library does not authenticate external callers in v1. | Disable the exposed integration and add host-side access controls before accepting untrusted calls. |
 | **R4** | **Orphaned `processing` records** — worker process crashes, OOMs, or disconnects mid-dispatch, leaving events stuck in `processing`.        | Medium     | High   | **High**   | Core Eng       | Events remain in `processing` state past the configured timeout without active worker heartbeats. | Atomically recover only leases older than `max(timeoutLimitMs + 30000 ms, 90000 ms)` on scheduler poll cycles (FR-5, AC9); the SQLite adapter operation is implemented in WBS 2.7 and poll-loop invocation in WBS 4.1. | Surface recovery failures and retry the sweep on a later poll cycle; do not reclaim leases inside the safe threshold. |
 | **R5** | **Backoff / Jitter misconfiguration** — improper parameters trigger thundering herds on endpoints or excessive dispatch delays.             | Low        | Medium | **Low**    | Core Eng       | Endpoint reports 429/503 spikes or queue drain latency exceeds SLA.                               | Validate configuration schemas at startup (Zod/Valibot); enforce bounded full-jitter exponential backoff and cap max delays (§5.3, AC4).                                 | Fall back to hardcoded safe defaults (min: 1s, max: 60000ms, full-jitter) if user values fail validation.  |
-| **R6** | **Credential or secret leakage in logs** — raw payloads, auth headers, or signing keys leaked in error stacks or diagnostic logs.           | Low        | High   | **Medium** | Core Eng       | Sensitive tokens, headers, or HMAC secrets detected in application log streams.                   | Enforce structured logging with automated redactors for `Authorization`, `x-api-key`, and request payloads (NFR-S3).                                                     | Rotate compromised credentials and update the logging sanitizer rules to cover the leaked fields.          |
+| **R6** | **Secret leakage in logs** — payloads, delivery headers, or signing keys leaked in error stacks or diagnostic logs. | Low | High | **Medium** | Core Eng | Sensitive values detected in application log streams. | Enforce structured logging with automated redaction for delivery secrets, sensitive headers, and request payloads (NFR-S3). | Rotate compromised secrets and update logging sanitization to cover the leaked values. |
 | **R7** | **Node.js 24 API drift** — runtime changes in native fetch, crypto, SQLite bindings, or SQLite APIs break behavior. | Low | Medium | **Low** | Core Eng | CI or automated smoke tests fail. | Pin supported dependency versions and test on Node.js 24.x. | Lock dependency versions and isolate SQLite driver behavior behind the storage adapter. |
 
 ---
@@ -344,10 +343,10 @@ _(Accessibility/privacy: not applicable to an embeddable backend library; data s
 An item/release is **Done** only when ALL of the following hold:
 
 1. **Implementation:** All MUST functional requirements (§5) and MUST non-functional requirements (§6) implemented in TypeScript (strict), per the SDD derived from this PRD.
-2. **Testing:** Vitest unit + integration suites pass (`pnpm test`); database integration tests run against SQLite; security tests (auth, HMAC, idempotency) pass.
-3. **Coverage:** Overall coverage **≥ 80%**; critical paths — ingestion, unified atomic claim, retry scheduler/backoff, API key auth, HMAC signing — **≥ 95%** (G8, AC13).
+2. **Testing:** Vitest unit + integration suites pass (`pnpm test`); database integration tests run against SQLite; security tests (tenant identity enforcement, HMAC, idempotency) pass.
+3. **Coverage:** Overall coverage **≥ 80%**; critical paths — ingestion, unified atomic claim, retry scheduler/backoff, tenant isolation, HMAC signing — **≥ 95%** (G8, AC13).
 4. **Acceptance criteria:** Every criterion in §8 verified with actual recorded test results (no claimed-but-not-run tests, per master rules).
-5. **Security review:** Constant-time comparison, HMAC signing, parameterized SQL, and secret handling reviewed and confirmed (NFR-S1–S4, NFR-S6).
+5. **Security review:** Host-owned access boundary, configured tenant identity, HMAC signing, parameterized SQL, and secret handling reviewed and confirmed (NFR-S1–S4, NFR-S6).
 6. **Documentation:** README/docs updated (config keys, SQLite schema, delivery semantics: at-least-once + HMAC headers), clearly identifying PostgreSQL/MySQL as deferred to v2.0.
 7. **Review:** Code reviewed and approved by Tech Lead; no unresolved critical/high defects.
 8. **Consistency:** PRD/SDD/test plan artifacts consistent with the delivered behavior; scope changes only with explicit user approval.
@@ -362,8 +361,8 @@ An item/release is **Done** only when ALL of the following hold:
 | QA Lead                      | Test plan, coverage report, AC verification           | QA sign-off                       | Required (Code Coverage: **≥ 80% overall, ≥ 95% for critical paths**)                                 |
 | End User / Stakeholder       | Final acceptance per master-rules checkpoint          | Checkpoint approvals              | Explicit user checkpoint approval required before transitioning between SDLC phases per master rules. |
 
-**Approval rule:** Release proceeds only upon explicit user checkpoint sign-off for phase transitions, combined with QA code coverage meeting the strict thresholds (**≥ 80% overall**, **≥ 95%** for critical paths: ingestion & authentication, unified atomic claim, retry/backoff, and HMAC/SSRF security).
+**Approval rule:** Release proceeds only upon explicit user checkpoint sign-off for phase transitions, combined with QA code coverage meeting the strict thresholds (**≥ 80% overall**, **≥ 95%** for critical paths: ingestion and tenant isolation, unified atomic claim, retry/backoff, and HMAC/SSRF security).
 
 ---
 
-_End of PRD v1.0.0 — structured per `templates/PRD-template.md`; section order and required headings preserved._
+_End of PRD v1.0.0 — structured per `.agent-rules/templates/PRD-template.md`; section order and required headings preserved._
