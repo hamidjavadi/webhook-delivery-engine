@@ -41,7 +41,7 @@
 - **Key Milestones:**
   - `M3.1`: Polling coordinator performs stale recovery before configurable atomic batch claims, throttles empty cycles, and passes claimed events to the worker seam; the host owns OS signal registration and calls engine shutdown during process termination.
   - `M3.2`: Outbound request signer emitting canonical `x-webhook-signature` (HMAC SHA-256) and `x-webhook-timestamp`.
-  - `M3.3`: Native fetch dispatcher bound to a strict 10s `AbortController` timeout.
+  - `M3.3`: Native Fetch dispatcher bound to a strict 10s `AbortController` timeout, with each connection pinned to a freshly vetted destination address (WBS 5.2.a; PR #83).
   - `M3.4`: Exponential backoff engine with Full Jitter: $\min(\text{base} \cdot 2^{\text{attempt}-1}, \text{cap})$. Treat 2xx as success; retry 408, 409, 429, 5xx, and transport/timeouts until `maxAttempts`; immediately fail other 4xx per ADR-0004.
   - `M3.5`: Append-only attempt logging (`webhook_event_attempts`) for every dispatch result, with response payload truncation (≤1 KB); record terminal failures and mark retry exhaustion at `maxAttempts`.
 - **Mapped WBS Items:** WBS 4.0 (4.1, 4.2), WBS 5.0 (5.1, 5.2, 5.3, 5.4).
@@ -59,8 +59,8 @@
   - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers in SQLite).
   - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark were revalidated against the approved thresholds after WBS 3.4.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
-  - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 and connection-pinning follow-up 5.2.a are Done.
+  - `M4.5`: Documentation and the original Planning-to-SDD gate are audited retrospectively; WBS 8.2.b records a No-Go pending stakeholder disposition of remaining findings.
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 and connection-pinning follow-up 5.2.a are Done. WBS 8.2.b QA passed, with overall gate No-Go pending stakeholder disposition (audit dated 2026-10-25).
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all PRD Acceptance Criteria AC1–AC16 pass, including AC15 (SQLite adapter) and AC16 (non-retryable 4xx handling).
 
 ---

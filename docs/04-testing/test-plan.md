@@ -792,3 +792,36 @@ execution evidence, not as current v1 acceptance evidence.
   phase-gate review.
 - **Go/No-Go:** Go for WBS 5.2.a implementation and review; the DNS-rebinding
   dispatch gap is covered by the tests above.
+
+### WBS 8.2.b Phase-Gate QA Results (Issue #84)
+
+- **Date/environment:** 2026-10-25; Node.js v24.16.0; Vitest 3.2.7. pnpm was
+  used to invoke the project commands; a standalone pnpm version probe did
+  not return, so its version is not claimed for this run. Tests use synthetic
+  data, deterministic mocked DNS, temporary SQLite databases, and local TLS;
+  no external DNS or destination was contacted.
+- **Security-focused tests:** `pnpm exec vitest run
+  src/security/ssrf.test.ts
+  src/features/delivery/delivery.dispatcher.test.ts
+  src/features/delivery/delivery.dispatcher.pin.test.ts` passed: 3 files,
+  91 tests.
+- **Full tests and coverage:** `pnpm exec vitest run --coverage` passed:
+  20 files, 401 tests. Overall coverage was 98.54% statements/lines, 99.09%
+  functions, and 95.53% branches. `delivery.dispatcher.ts` measured 100%
+  statements/lines/functions and 97.29% branches; `ssrf.ts` measured 98.75%
+  statements/lines, 100% functions, and 98.55% branches.
+- **Additional critical-path check:** `node
+  scripts/check-claim-coverage.mjs` passed. Both `claimDueEvents` and
+  `compareClaimedEvents` measured 100% statements, lines, functions, and
+  branches, exceeding the 95% atomic-claim threshold.
+- **Other checks:** `pnpm lint`, `pnpm exec tsc --noEmit --project
+  tsconfig.json`, and `pnpm build` passed. Prettier checks on all seven updated
+  records and `git diff --check` passed after the documentation edits.
+- **Failures/open bugs:** No test, lint, type-check, or build failures; no
+  implementation defect was found by this QA run. Two prior audit findings
+  remain for stakeholder disposition: the Planning-to-SDD audit occurred
+  retrospectively, and PRD goals G2/G3/G7 use undated sprint time bounds.
+  Their approved text was not changed.
+- **Go/No-Go:** No-Go for closing WBS 8.2.b until the stakeholder explicitly
+  accepts or resolves those findings. WBS 5.2.a security implementation and
+  its test/coverage criteria pass.
