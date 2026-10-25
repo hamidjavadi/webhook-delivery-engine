@@ -58,6 +58,7 @@ queued claims may be released only on restart through stale-lease recovery.
 ### 3.2. SSRF Infiltration Attempt (R-03)
 
 - **Detection:** Dispatch engine catches attempt to resolve internal, loopback, or cloud instance metadata addresses.
+- **WBS 5.2.a mitigation:** Each dispatch performs fresh all-answer validation and pins its request-scoped connection to a vetted address while preserving HTTPS hostname and certificate checks. Redirects are disabled. Unit and local HTTPS tests cover changed DNS answers, unsafe answers, connection failure, TLS identity failure, and redirects (issue #82).
 - **Remediation:**
   1. Immediately block the destination host in the runtime network security layer.
   2. Suspend delivery for the offending client identifier.

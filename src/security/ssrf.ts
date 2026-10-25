@@ -45,6 +45,22 @@ export type DestinationUrlValidationResult =
         | 'dns_resolution_failed';
     };
 
+/**
+ * Internal delivery-only DNS result. Callers must not expose addresses in
+ * public API results, logs, or persisted records.
+ */
+export type DestinationDispatchResolutionResult =
+  | {
+      readonly valid: true;
+      readonly url: string;
+      readonly hostname: string;
+      readonly addresses: readonly string[];
+    }
+  | {
+      readonly valid: false;
+      readonly reason: Extract<DestinationUrlValidationResult, { valid: false }>['reason'];
+    };
+
 function ipv4ToBigInt(address: string): bigint {
   return address.split('.').reduce((value, octet) => (value << 8n) | BigInt(octet), 0n);
 }
@@ -133,20 +149,21 @@ function hasForbiddenUrlCharacters(value: string): boolean {
 }
 
 /**
- * Validates a destination URL before it can be persisted or dispatched.
+ * Resolves and validates a destination immediately before HTTP dispatch.
  *
  * Only absolute HTTPS URLs without embedded credentials are accepted. Literal
  * addresses are classified without DNS; hostnames are rejected if any
  * resolved IPv4 or IPv6 address is unsafe. Hostname lookup requests every
- * address using Node DNS. The function performs DNS lookup only and never
- * opens an HTTP connection or socket to the destination.
+ * address using Node DNS. Successful results include the vetted addresses for
+ * the delivery connector to pin. This internal result must never be exposed
+ * through the public API or logs.
  *
- * @param destinationUrl - Untrusted destination URL supplied by a caller or configuration.
- * @returns A canonical URL on success or a generic safe failure reason.
+ * @param destinationUrl - Persisted destination URL for one dispatch attempt.
+ * @returns A canonical URL and vetted addresses or a generic safe failure.
  */
-export async function validateDestinationUrl(
+export async function resolveDestinationForDispatch(
   destinationUrl: string,
-): Promise<DestinationUrlValidationResult> {
+): Promise<DestinationDispatchResolutionResult> {
   if (
     typeof destinationUrl !== 'string' ||
     destinationUrl.length === 0 ||
@@ -184,7 +201,7 @@ export async function validateDestinationUrl(
   if (addressFamily !== 0) {
     return isBlockedAddress(hostname)
       ? { valid: false, reason: 'unsafe_address' }
-      : { valid: true, url: parsedUrl.toString() };
+      : { valid: true, url: parsedUrl.toString(), hostname, addresses: [hostname] };
   }
 
   let addresses: readonly string[];
@@ -200,5 +217,21 @@ export async function validateDestinationUrl(
     return { valid: false, reason: 'unsafe_address' };
   }
 
-  return { valid: true, url: parsedUrl.toString() };
+  return { valid: true, url: parsedUrl.toString(), hostname, addresses };
+}
+
+/**
+ * Validates a destination URL before it can be persisted.
+ *
+ * @param destinationUrl - Untrusted destination URL supplied by a caller or configuration.
+ * @returns A canonical URL on success or a generic safe failure reason.
+ */
+export async function validateDestinationUrl(
+  destinationUrl: string,
+): Promise<DestinationUrlValidationResult> {
+  const result = await resolveDestinationForDispatch(destinationUrl);
+  if (!result.valid) {
+    return result;
+  }
+  return { valid: true, url: result.url };
 }

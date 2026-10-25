@@ -36,7 +36,7 @@
 
 ### Phase 3: Worker Engine, HTTP Dispatcher & Backoff Policy
 
-- **Estimated Effort:** ~23h (WBS 4.0: 8h, WBS 5.0: 15h; WBS 5.2.a's provisional 8h is excluded).
+- **Estimated Effort:** ~31h (WBS 4.0: 8h, WBS 5.0: 15h, WBS 5.2.a: 8h provisional).
 - **Objective:** Implement the background polling loop, HTTP client dispatcher, cryptographic delivery signing, and bounded exponential backoff.
 - **Key Milestones:**
   - `M3.1`: Polling coordinator performs stale recovery before configurable atomic batch claims, throttles empty cycles, and passes claimed events to the worker seam; the host owns OS signal registration and calls engine shutdown during process termination.
@@ -60,7 +60,7 @@
   - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark were revalidated against the approved thresholds after WBS 3.4.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
   - `M4.5`: Complete documentation and Planning-to-SDD phase-gate approval.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 remains partial pending 5.2.a.
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 and connection-pinning follow-up 5.2.a are Done.
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all PRD Acceptance Criteria AC1–AC16 pass, including AC15 (SQLite adapter) and AC16 (non-retryable 4xx handling).
 
 ---

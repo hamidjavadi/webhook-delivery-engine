@@ -1,16 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { validateDestinationUrl } from './ssrf.js';
+import type { WebhookEvent, Timestamp } from '../core/types.js';
+import { dispatchEvent } from '../features/delivery/delivery.dispatcher.js';
+import { resolveDestinationForDispatch, validateDestinationUrl } from './ssrf.js';
 
 type LookupAll = (
   hostname: string,
   options: { readonly all: true; readonly verbatim: true },
 ) => Promise<readonly { readonly address: string; readonly family: number }[]>;
 
-const { lookupMock } = vi.hoisted(() => ({
+const { lookupMock, fetchMock, agentConstructedMock } = vi.hoisted(() => ({
   lookupMock: vi.fn<LookupAll>(),
+  fetchMock: vi.fn(),
+  agentConstructedMock: vi.fn(),
 }));
 
 vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
+
+vi.mock('undici', async () => {
+  const actual = await vi.importActual<typeof import('undici')>('undici');
+  return {
+    ...actual,
+    Agent: class {
+      constructor() {
+        agentConstructedMock();
+      }
+
+      close(): Promise<void> {
+        return Promise.resolve();
+      }
+    },
+    fetch: fetchMock,
+  };
+});
 
 function setLookupAnswers(addresses: readonly string[]): void {
   lookupMock.mockResolvedValue(
@@ -175,5 +196,76 @@ describe('validateDestinationUrl', () => {
 
     expect(result).toEqual({ valid: false, reason: 'dns_resolution_failed' });
     expect(JSON.stringify(result)).not.toContain('sensitive resolver detail');
+  });
+});
+
+describe('resolveDestinationForDispatch', () => {
+  beforeEach(() => {
+    lookupMock.mockReset();
+  });
+
+  it('returns every freshly validated address for an internal dispatcher pin', async () => {
+    setLookupAnswers(['93.184.216.34', '2606:4700:4700::1111']);
+
+    const result = await resolveDestinationForDispatch('https://consumer.example/hooks');
+
+    expect(result).toEqual({
+      valid: true,
+      url: 'https://consumer.example/hooks',
+      hostname: 'consumer.example',
+      addresses: ['93.184.216.34', '2606:4700:4700::1111'],
+    });
+  });
+
+  it('rejects a DNS answer that changed from safe at ingestion to unsafe before dispatch', async () => {
+    setLookupAnswers(['93.184.216.34']);
+    await expect(validateDestinationUrl('https://consumer.example/hooks')).resolves.toMatchObject({
+      valid: true,
+    });
+
+    setLookupAnswers(['10.0.0.8']);
+    const result = await resolveDestinationForDispatch('https://consumer.example/hooks');
+
+    expect(result).toEqual({ valid: false, reason: 'unsafe_address' });
+  });
+
+  it('does not create a connector or send a request when DNS changes to an unsafe answer before dispatch', async () => {
+    setLookupAnswers(['93.184.216.34']);
+    await expect(validateDestinationUrl('https://consumer.example/hooks')).resolves.toMatchObject({
+      valid: true,
+    });
+
+    setLookupAnswers(['10.0.0.8']);
+    const event: WebhookEvent = {
+      id: 'rebinding-event',
+      idempotencyKey: 'rebinding-key',
+      clientId: 'client-1',
+      destinationUrl: 'https://consumer.example/hooks',
+      payload: {},
+      metadata: {},
+      headers: {},
+      status: 'processing',
+      attemptCount: 1,
+      nextRetryAt: null,
+      lockedAt: '2026-10-24T00:00:00.000Z' as Timestamp,
+      lockedBy: 'worker-1',
+      createdAt: '2026-10-24T00:00:00.000Z' as Timestamp,
+      updatedAt: '2026-10-24T00:00:00.000Z' as Timestamp,
+    };
+
+    const result = await dispatchEvent({ event, hmacSecret: 'test-secret', timeoutLimitMs: 1_000 });
+
+    expect(result).toMatchObject({ statusCode: null, error: 'network error' });
+    expect(agentConstructedMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not return addresses when any fresh DNS answer is unsafe', async () => {
+    setLookupAnswers(['93.184.216.34', '10.0.0.8']);
+
+    const result = await resolveDestinationForDispatch('https://consumer.example/hooks');
+
+    expect(result).toEqual({ valid: false, reason: 'unsafe_address' });
+    expect(JSON.stringify(result)).not.toContain('93.184.216.34');
   });
 });

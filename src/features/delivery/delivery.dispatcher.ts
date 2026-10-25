@@ -1,8 +1,52 @@
+import { isIP } from 'node:net';
+import type { ConnectionOptions } from 'node:tls';
+import { Agent, fetch, Headers as UndiciHeaders } from 'undici';
 import type { WebhookEvent } from '../../core/types.js';
+import { resolveDestinationForDispatch } from '../../security/ssrf.js';
 import { signRequest } from './delivery.hmac.js';
 
 /** Maximum response body length captured as a snippet (SDD §4.2). */
 const MAX_SNIPPET_BYTES = 1024;
+
+function pinnedLookup(
+  expectedHostname: string,
+  addresses: readonly string[],
+): NonNullable<ConnectionOptions['lookup']> {
+  const pinnedAddress = addresses[0];
+  const pinnedFamily = pinnedAddress === undefined ? 0 : isIP(pinnedAddress);
+
+  return (hostname, options, callback) => {
+    const requestedHostname = hostname.toLowerCase().replace(/\.$/u, '');
+    const pinnedHostname = expectedHostname.toLowerCase().replace(/\.$/u, '');
+    if (requestedHostname !== pinnedHostname) {
+      const error = Object.assign(new Error('Pinned destination mismatch'), { code: 'EAI_FAIL' });
+      if (options.all) {
+        callback(error, []);
+      } else {
+        callback(error, '', 0);
+      }
+      return;
+    }
+
+    if (pinnedAddress === undefined || pinnedFamily === 0) {
+      const error = Object.assign(new Error('No validated destination address'), {
+        code: 'EAI_NONAME',
+      });
+      if (options.all) {
+        callback(error, []);
+      } else {
+        callback(error, '', 0);
+      }
+      return;
+    }
+
+    if (options.all) {
+      callback(null, [{ address: pinnedAddress, family: pinnedFamily }]);
+    } else {
+      callback(null, pinnedAddress, pinnedFamily);
+    }
+  };
+}
 
 /**
  * Input required to dispatch one outbound webhook delivery attempt.
@@ -47,6 +91,8 @@ export interface DispatchResult {
  * - Sign the request with HMAC-SHA256 via {@link signRequest}.
  * - Merge event-specific headers; engine-owned signing headers take
  *   precedence over any event-level header with the same name.
+ * - Re-resolve and classify the destination for this attempt, then pin one
+ *   validated address in a request-scoped Undici Agent.
  * - Bind an `AbortController` timer to `timeoutLimitMs`.
  * - Capture status code, latency, and a ≤ 1 KB response snippet.
  * - Map `AbortError` to `{ statusCode: null, error: 'timeout' }`.
@@ -79,7 +125,7 @@ export async function dispatchEvent(input: DispatchInput): Promise<DispatchResul
   });
 
   // Merge headers: event-specific first, engine-owned last (engine wins).
-  const mergedHeaders = new Headers({
+  const mergedHeaders = new UndiciHeaders({
     'content-type': 'application/json',
     ...event.headers,
     ...signedHeaders,
@@ -88,39 +134,74 @@ export async function dispatchEvent(input: DispatchInput): Promise<DispatchResul
   // Bind an AbortController to enforce the request timeout.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutLimitMs);
+  let rejectOnAbort: ((error: DOMException) => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = reject;
+  });
+  const onAbort = (): void =>
+    rejectOnAbort?.(new DOMException('The operation was aborted', 'AbortError'));
+  controller.signal.addEventListener('abort', onAbort, { once: true });
 
   const startMs = Date.now();
-
-  let response: Response;
+  let agent: Agent | undefined;
   try {
-    response = await fetch(event.destinationUrl, {
+    const resolution = await Promise.race([
+      resolveDestinationForDispatch(event.destinationUrl),
+      abortPromise,
+    ]);
+    if (!resolution.valid) {
+      return {
+        statusCode: null,
+        latencyMs: Date.now() - startMs,
+        responseSnippet: null,
+        error: 'network error',
+      };
+    }
+
+    agent = new Agent({
+      connections: 1,
+      pipelining: 0,
+      maxCachedSessions: 0,
+      connect: {
+        lookup: pinnedLookup(resolution.hostname, resolution.addresses),
+      },
+    });
+
+    const response = await fetch(resolution.url, {
       method: 'POST',
       headers: mergedHeaders,
       body: bodyString,
       signal: controller.signal,
-      redirect: 'error', // never follow redirects (SDD §5.7 / SSRF)
+      dispatcher: agent,
+      redirect: 'error', // never follow redirects (SDD §5.1 / ADR-0006)
     });
-  } catch (error: unknown) {
+
     clearTimeout(timer);
     const latencyMs = Date.now() - startMs;
-    const isAbort = error instanceof DOMException && error.name === 'AbortError';
+    const rawBody = await response.text();
+    const responseSnippet = rawBody.length === 0 ? null : rawBody.slice(0, MAX_SNIPPET_BYTES);
+
+    return {
+      statusCode: response.status,
+      latencyMs,
+      responseSnippet,
+      error: null,
+    };
+  } catch (error: unknown) {
+    const latencyMs = Date.now() - startMs;
+    const isAbort =
+      controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
     return {
       statusCode: null,
       latencyMs,
       responseSnippet: null,
       error: isAbort ? 'timeout' : 'network error',
     };
+  } finally {
+    clearTimeout(timer);
+    controller.signal.removeEventListener('abort', onAbort);
+    if (agent !== undefined) {
+      await agent.close();
+    }
   }
-
-  clearTimeout(timer);
-  const latencyMs = Date.now() - startMs;
-  const rawBody = await response.text();
-  const responseSnippet = rawBody.length === 0 ? null : rawBody.slice(0, MAX_SNIPPET_BYTES);
-
-  return {
-    statusCode: response.status,
-    latencyMs,
-    responseSnippet,
-    error: null,
-  };
 }

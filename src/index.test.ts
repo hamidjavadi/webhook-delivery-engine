@@ -9,7 +9,24 @@ import { ClaimScheduler } from './features/scheduler/scheduler.js';
 
 vi.mock('./security/ssrf.js', () => ({
   validateDestinationUrl: async (url: string) => ({ valid: true, url }),
+  resolveDestinationForDispatch: async (value: string) => {
+    const url = new URL(value);
+    return {
+      valid: true,
+      url: url.toString(),
+      hostname: url.hostname,
+      addresses: ['93.184.216.34'],
+    };
+  },
 }));
+
+vi.mock('undici', async () => {
+  const actual = await vi.importActual<typeof import('undici')>('undici');
+  return {
+    ...actual,
+    fetch: (...args: unknown[]) => Reflect.apply(globalThis.fetch, globalThis, args),
+  };
+});
 
 const directories: string[] = [];
 
