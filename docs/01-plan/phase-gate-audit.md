@@ -1,5 +1,9 @@
 # WBS 8.2 Planning Phase-Gate Audit
 
+> Historical initial audit snapshot dated 2026-10-24. The current retrospective
+> reassessment and QA decision dated 2026-10-25 is appended below and supersedes
+> the snapshot's statements about current follow-up status.
+
 **Date:** 2026-10-24  
 **Result:** No-Go; follow-up work is required  
 **Reviewed:** PRD, scope, WBS, roadmap, risk register, master rules, SDD,
@@ -87,3 +91,62 @@ criterion remains unchanged. WBS 5.2.a and 8.2.a are ready for execution;
 8.2.b depends on both. Per the master checkpoint rule, do not begin the
 implementation follow-up until the stakeholder approves the checkpoint
 summary and open work.
+
+## WBS 8.2.b Retrospective Re-Audit and QA Decision
+
+**Date:** 2026-10-25
+**Issue:** #84
+**Reviewed state:** `dev` after PR #83 merged, including WBS 5.2.a implementation, ADR-0006, WBS 8.2.a planning reconciliation, and the current test results.
+**Decision:** **No-Go for closing WBS 8.2.b; implementation QA passes, but stakeholder disposition remains open.**
+
+### Actual verification results
+
+- Security-focused command covering `src/security/ssrf.test.ts`,
+  `src/features/delivery/delivery.dispatcher.test.ts`, and
+  `src/features/delivery/delivery.dispatcher.pin.test.ts`: **3 files and 91
+  tests passed**.
+- Full command `pnpm exec vitest run --coverage`: **20 files and 401 tests
+  passed**. Overall coverage: **98.54% statements/lines, 99.09% functions,
+  95.53% branches**.
+- `src/features/delivery/delivery.dispatcher.ts`: **100% statements, lines,
+  and functions; 97.29% branches**. `src/security/ssrf.ts`: **98.75%
+  statements/lines, 100% functions, 98.55% branches**.
+- `node scripts/check-claim-coverage.mjs`: passed. Both `claimDueEvents` and
+  `compareClaimedEvents` measured **100% statements, lines, functions, and
+  branches**. The full suite also ran the 1,000-event/100-independent-process
+  claim test and abrupt-process-exit recovery test.
+- `pnpm lint`, `pnpm exec tsc --noEmit --project tsconfig.json`, and
+  `pnpm build`: passed. The environment was Node.js v24.16.0 and Vitest 3.2.7.
+  A standalone `pnpm --version` probe stalled and was stopped, so no pnpm
+  version is asserted for this audit run.
+- Security tests used deterministic DNS and local TLS fixtures and contacted no
+  external DNS resolver or destination. No test, lint, type-check, or build
+  failure was observed.
+
+### Finding disposition
+
+1. **DNS rebinding protection — closed technically.** PR #83 implements fresh
+   all-answer validation and pins each request-scoped connection to a vetted
+   address while preserving hostname/SNI/certificate verification. Redirects
+   are disabled. The focused tests and critical-path coverage above pass.
+2. **Planning record reconciliation — closed for the listed discrepancies.**
+   WBS 8.2.a records the reconciliation; current SDD, ADR-0006, risk register,
+   roadmap, WBS, and test plan reflect the merged implementation and current
+   acceptance criteria. Historical API-key evidence remains labeled as
+   historical.
+3. **Audit sequencing — open as a historical process deviation.** The original
+   WBS 8.2 planning-to-SDD audit was performed after design and implementation
+   had begun. No later audit can make that original sequencing prospective.
+   Stakeholder acceptance of this documented deviation is required to close
+   the finding.
+4. **SMART goal dates — open.** PRD goals G2, G3, and G7 use undated sprint
+   time bounds. Their approved text was preserved; stakeholder approval is
+   needed either to accept the limitation or to authorize dated replacements.
+
+### Gate decision
+
+The implementation and automated QA criteria for WBS 5.2.a pass. The current
+overall phase-gate decision remains **No-Go** because findings 3 and 4 have not
+been explicitly accepted or resolved by the stakeholder. No risk rating or
+approved PRD goal was changed. WBS 8.2.b remains open until that disposition
+is recorded; no deployment or release approval is implied by this QA result.

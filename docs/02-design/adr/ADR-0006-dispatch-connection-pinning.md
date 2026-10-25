@@ -102,9 +102,13 @@ logging the destination IP, raw error, or resolver details.
 The selected implementation adds Undici as a direct runtime dependency and
 creates and closes a request-scoped Agent for each dispatch. This adds small
 per-request connection setup overhead in exchange for isolating pins and TLS
-sessions. WBS 5.2.a implementation and security tests are complete; see the QA
-results in `docs/04-testing/test-plan.md` and issue #82. The broader R-03 risk
-remains subject to the project phase-gate review.
+sessions. WBS 5.2.a implementation and security tests were merged in PR #83.
+On 2026-10-25, the focused SSRF/dispatcher suite passed 91 tests and the full
+suite passed 401 tests. Dispatcher coverage was 100% statements, lines, and
+functions and 97.29% branches; SSRF validation coverage was 98.75%
+statements/lines, 100% functions, and 98.55% branches. See the QA results in
+`docs/04-testing/test-plan.md`. The broader phase-gate audit remains No-Go
+pending disposition of its non-implementation findings.
 
 ## References
 

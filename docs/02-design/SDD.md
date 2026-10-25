@@ -402,6 +402,15 @@ WBS 2.7 implements this adapter operation and its threshold/boundary tests. The 
 
 Thresholds: ≥ 80% overall; ≥ 95% on ingestion, configured tenant identity/isolation, atomic claim, retry scheduler/backoff, HMAC, and SSRF validation paths (G8, AC13). WBS 3.3/3.4 tests cover strict parsed-body schema, caller-vs-config destination errors, successful new/replay response shapes, tenant isolation, immutable original rows on replay, propagated adapter failures, and the 1,000-submission SQLite concurrency criterion. Historical API-key authentication results are recorded in the test plan as historical evidence only. SSRF tests cover strict request schema behavior, URL syntax/protocol/credential rejection, IPv4/IPv6 special ranges, mapped addresses, all DNS answers, empty/error lookups, and no external network use. Verification requires actual recorded test results — claimed-but-not-run tests are prohibited by master rules.
 
+**WBS 8.2.b verification (2026-10-25):** The 91-test SSRF/dispatcher suite
+and 401-test full suite passed. Overall coverage was 98.54% statements/lines,
+99.09% functions, and 95.53% branches. The dispatcher had 100% statements,
+lines, and functions with 97.29% branches; SSRF validation had 98.75%
+statements/lines, 100% functions, and 98.55% branches. The atomic-claim
+coverage checker reported 100% in all dimensions for both claim helpers. See
+`docs/04-testing/test-plan.md` and `docs/01-plan/phase-gate-audit.md` for the
+commands, environment, and gate findings.
+
 WBS 7.1 measures the public embedded `enqueue()` path against a temporary local
 SQLite file. Complete engine construction, startup, and migrations before
 timing; use a literal public IP fixture so validation performs no DNS lookup,
@@ -453,7 +462,7 @@ the database directory.
 
 **Related ADRs:** [ADR-0001 — Atomic Claim](adr/ADR-0001-unified-atomic-claim-pattern.md); [ADR-0002 — Stale-Lease Recovery](adr/ADR-0002-stale-lease-recovery-mechanism.md); [ADR-0003 — Migration Runner](adr/ADR-0003-migration-runner-selection.md); [ADR-0004 — 4xx Classification](adr/ADR-0004-non-retryable-4xx-classification.md); [ADR-0005 — SSRF Validation](adr/ADR-0005-ssrf-destination-validation.md); [ADR-0006 — Connection Pinning](adr/ADR-0006-dispatch-connection-pinning.md). Future database dialects require separate design and validation.
 
-**Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC16), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R-01–R-12). The WBS 5.2.a transport proposal and ADR-0006 remain pending the design checkpoint. Per master rules, implementation begins only after explicit checkpoint approval.
+**Traceability & approval:** this SDD is derived from and consistent with `PRD.md` (requirements FR-1–FR-20, NFR-S/P/R/C, AC1–AC16), `scope.md` (§2 in-scope, §3 exclusions), `WBS.md` (work packages 1.1–8.x), and the risk register (R-01–R-12). The WBS 5.2.a transport design in ADR-0006 was approved at the design checkpoint on 2026-10-24; implementation and its security tests were merged in PR #83 on 2026-10-25. The WBS 8.2.b retrospective phase-gate decision and remaining stakeholder findings are recorded in `docs/01-plan/phase-gate-audit.md`.
 
 ---
 
