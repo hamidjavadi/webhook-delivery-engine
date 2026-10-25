@@ -118,11 +118,11 @@
 | Task ID | Task Description                     | Dependencies | Owner    | Est. | Acceptance Criteria                                                                                 | Status |
 | :------ | :----------------------------------- | :----------- | :------- | :--- | :-------------------------------------------------------------------------------------------------- | :----- |
 | **8.1** | **API & Architecture Documentation** | 6.1, 6.2     | Lead Eng | 3h   | Complete `README.md` and API usage documentation with code samples.                                 | Done; PR #78 merged |
-| **8.2** | **Planning Phase Gate Audit**        | 1.1 - 8.1    | Lead Eng | 2h   | 100% compliance check against PRD, Scope, and `00-master-rules.md` checklist prior to starting SDD. | Audited; No-Go, follow-ups open |
+| **8.2** | **Planning Phase Gate Audit**        | 1.1 - 8.1    | Lead Eng | 2h   | 100% compliance check against PRD, Scope, and `00-master-rules.md` checklist prior to starting SDD. | Retrospective audit; sequencing deviation accepted; exception-based Go recorded 2026-10-25 |
 
 #### WBS 8.2 Follow-up Actions
 
 | Task ID | Deliverable | Dependency | Owner | Est. | Acceptance Criterion | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **8.2.a** | Reconcile planning and design records with merged implementation | 8.2 | Lead Eng | 2h | SDD, roadmap, and risk records reflect the current host-owned identity, completed WBS tasks, dispatcher security gap, and current acceptance criteria; historical API-key evidence remains clearly labeled historical. | Done; issue #80 |
-| **8.2.b** | Re-run phase-gate audit and record decision | 5.2.a, 8.2.a | Lead Eng | 1h | Audit findings are closed or explicitly accepted by the stakeholder; traceability, risk gates, and approval records are complete, and the resulting Go/No-Go decision is recorded. | QA complete; No-Go pending stakeholder disposition of open findings (issue #84) |
+| **8.2.b** | Re-run phase-gate audit and record decision | 5.2.a, 8.2.a | Lead Eng | 1h | Audit findings are closed or explicitly accepted by the stakeholder; traceability, risk gates, and approval records are complete, and the resulting Go/No-Go decision is recorded. | Done; exception-based Go and stakeholder approval recorded 2026-10-25 (issue #84) |

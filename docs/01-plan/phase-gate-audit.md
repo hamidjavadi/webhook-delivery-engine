@@ -96,8 +96,8 @@ summary and open work.
 
 **Date:** 2026-10-25
 **Issue:** #84
-**Reviewed state:** `dev` after PR #83 merged, including WBS 5.2.a implementation, ADR-0006, WBS 8.2.a planning reconciliation, and the current test results.
-**Decision:** **No-Go for closing WBS 8.2.b; implementation QA passes, but stakeholder disposition remains open.**
+**Reviewed state:** `dev` at `d111b3e`, after PR #83 (WBS 5.2.a implementation) and PR #85 (audit-record updates) merged. Rechecked the PRD, scope, WBS, roadmap, risk register, SDD, ADR-0006, test plan, and audit record.
+**Decision:** **Go with accepted exceptions; WBS 8.2.b is complete.**
 
 ### Actual verification results
 
@@ -119,6 +119,11 @@ summary and open work.
   `pnpm build`: passed. The environment was Node.js v24.16.0 and Vitest 3.2.7.
   A standalone `pnpm --version` probe stalled and was stopped, so no pnpm
   version is asserted for this audit run.
+- Re-ran the security-focused suite, full coverage suite, claim-coverage
+  checker, lint, type-check, and build against `dev` at `d111b3e` on
+  2026-10-25. Results matched: 91 focused tests and 401 full tests passed with
+  the coverage figures above; all other checks passed. PR #85 changed audit
+  records only, and this run found no implementation regressions.
 - Security tests used deterministic DNS and local TLS fixtures and contacted no
   external DNS resolver or destination. No test, lint, type-check, or build
   failure was observed.
@@ -134,19 +139,27 @@ summary and open work.
    roadmap, WBS, and test plan reflect the merged implementation and current
    acceptance criteria. Historical API-key evidence remains labeled as
    historical.
-3. **Audit sequencing — open as a historical process deviation.** The original
-   WBS 8.2 planning-to-SDD audit was performed after design and implementation
-   had begun. No later audit can make that original sequencing prospective.
-   Stakeholder acceptance of this documented deviation is required to close
-   the finding.
-4. **SMART goal dates — open.** PRD goals G2, G3, and G7 use undated sprint
-   time bounds. Their approved text was preserved; stakeholder approval is
-   needed either to accept the limitation or to authorize dated replacements.
+3. **Audit sequencing — accepted historical process deviation.** The original
+   WBS 8.2 planning-to-SDD audit occurred after design and implementation had
+   begun. This remains a retrospective audit and is not represented as a
+   prospective checkpoint. The stakeholder explicitly accepted this deviation
+   on 2026-10-25.
+4. **SMART goal dates — resolved.** With stakeholder approval on 2026-10-25,
+   PRD G2, G3, and G7 now use evidence-based completion dates: October 23,
+   October 22, and October 23, 2026, respectively. The supporting commit
+   references are recorded in the PRD.
+
+### Stakeholder Checkpoint Approval
+
+On 2026-10-25, the stakeholder approved the evidence-based G2/G3/G7 dates above
+and accepted the original Planning-to-SDD audit sequencing as a documented
+historical deviation. This is the required WBS 8.2.b checkpoint approval. No
+claim is made that the original checkpoint occurred prospectively.
 
 ### Gate decision
 
-The implementation and automated QA criteria for WBS 5.2.a pass. The current
-overall phase-gate decision remains **No-Go** because findings 3 and 4 have not
-been explicitly accepted or resolved by the stakeholder. No risk rating or
-approved PRD goal was changed. WBS 8.2.b remains open until that disposition
-is recorded; no deployment or release approval is implied by this QA result.
+The implementation and automated QA criteria for WBS 5.2.a pass. Findings 1,
+2, and 4 are resolved; finding 3 is explicitly accepted as a historical
+process deviation. The current phase-gate decision is **Go with accepted
+exceptions**, and WBS 8.2.b is complete. The R-03 risk score remains unchanged.
+This planning phase-gate decision is not a deployment or release approval.

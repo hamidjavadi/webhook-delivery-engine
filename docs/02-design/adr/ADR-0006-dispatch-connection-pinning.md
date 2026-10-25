@@ -103,12 +103,14 @@ The selected implementation adds Undici as a direct runtime dependency and
 creates and closes a request-scoped Agent for each dispatch. This adds small
 per-request connection setup overhead in exchange for isolating pins and TLS
 sessions. WBS 5.2.a implementation and security tests were merged in PR #83.
-On 2026-10-25, the focused SSRF/dispatcher suite passed 91 tests and the full
-suite passed 401 tests. Dispatcher coverage was 100% statements, lines, and
+The 2026-10-25 re-run on `dev` at `d111b3e` passed 91 focused SSRF/dispatcher
+tests and all 401 tests in the full suite. Dispatcher coverage was 100%
+statements, lines, and
 functions and 97.29% branches; SSRF validation coverage was 98.75%
 statements/lines, 100% functions, and 98.55% branches. See the QA results in
-`docs/04-testing/test-plan.md`. The broader phase-gate audit remains No-Go
-pending disposition of its non-implementation findings.
+`docs/04-testing/test-plan.md`. The retrospective phase-gate audit is Go with
+the historical sequencing deviation explicitly accepted by the stakeholder;
+the approval is recorded in `docs/01-plan/phase-gate-audit.md`.
 
 ## References
 

@@ -788,8 +788,9 @@ execution evidence, not as current v1 acceptance evidence.
   documentation passed. `git diff --check` is recorded after the final
   documentation update.
 - **Open limitations:** The request-scoped Agent adds per-dispatch connection
-  setup overhead. Broader R-03 acceptance remains part of the WBS 8.2.b
-  phase-gate review.
+  setup overhead. The WBS 8.2.b phase-gate review accepted the historical
+  sequencing deviation and verified the R-03 mitigation; the residual High
+  risk rating remains unchanged.
 - **Go/No-Go:** Go for WBS 5.2.a implementation and review; the DNS-rebinding
   dispatch gap is covered by the tests above.
 
@@ -818,10 +819,16 @@ execution evidence, not as current v1 acceptance evidence.
   tsconfig.json`, and `pnpm build` passed. Prettier checks on all seven updated
   records and `git diff --check` passed after the documentation edits.
 - **Failures/open bugs:** No test, lint, type-check, or build failures; no
-  implementation defect was found by this QA run. Two prior audit findings
-  remain for stakeholder disposition: the Planning-to-SDD audit occurred
-  retrospectively, and PRD goals G2/G3/G7 use undated sprint time bounds.
-  Their approved text was not changed.
-- **Go/No-Go:** No-Go for closing WBS 8.2.b until the stakeholder explicitly
-  accepts or resolves those findings. WBS 5.2.a security implementation and
-  its test/coverage criteria pass.
+  implementation defect was found by this QA run. The Planning-to-SDD audit
+  sequencing deviation was explicitly accepted by the stakeholder on
+  2026-10-25. PRD goals G2/G3/G7 now use approved evidence-based completion
+  dates of October 23, October 22, and October 23, 2026, respectively.
+- **Go/No-Go:** Go with accepted historical sequencing exception. WBS 5.2.a
+  security implementation and its test/coverage criteria pass; approval and
+  the decision are recorded in `docs/01-plan/phase-gate-audit.md`.
+- **Re-run:** On 2026-10-25 against merged `dev` at `d111b3e`, the same focused
+  and full test commands, coverage, claim-coverage checker, lint, type-check,
+  and build all passed with identical counts and coverage results. The
+  re-audit found no new traceability or implementation findings. The
+  stakeholder approved the checkpoint disposition on 2026-10-25, as recorded
+  in `docs/01-plan/phase-gate-audit.md`.

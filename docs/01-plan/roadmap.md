@@ -59,8 +59,8 @@
   - `M4.3`: Stress test validation (≥1,000 concurrent submissions, ≥100 parallel workers in SQLite).
   - `M4.3a`: WBS 7.1 coverage and local ingestion p95 benchmark were revalidated against the approved thresholds after WBS 3.4.
   - `M4.4`: CI/CD pipeline operational via GitHub Actions with SQLite integration and concurrency tests.
-  - `M4.5`: Documentation and the original Planning-to-SDD gate are audited retrospectively; WBS 8.2.b records a No-Go pending stakeholder disposition of remaining findings.
-- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 and connection-pinning follow-up 5.2.a are Done. WBS 8.2.b QA passed, with overall gate No-Go pending stakeholder disposition (audit dated 2026-10-25).
+  - `M4.5`: Documentation and the retrospective Planning-to-SDD audit are complete; WBS 8.2.b records an exception-based Go with stakeholder approval on 2026-10-25.
+- **Mapped WBS Items:** WBS 6.0 (6.1, 6.2, 6.3), WBS 7.0 (7.1, 7.2, 7.3, 7.4), WBS 8.0 (8.1, 8.2, including follow-ups 8.2.a and 8.2.b). WBS 7.1 coverage and local p95 criteria were revalidated after WBS 3.4; WBS 7.2–7.4 are Done. WBS 5.2 and connection-pinning follow-up 5.2.a are Done. WBS 8.2.b QA was re-run on `dev` at `d111b3e` on 2026-10-25 and passed; the historical sequencing deviation was accepted and the gate is Go with accepted exceptions.
 - **Exit Criteria (DoD):** Total test coverage ≥ 80%, critical path coverage ≥ 95%; all PRD Acceptance Criteria AC1–AC16 pass, including AC15 (SQLite adapter) and AC16 (non-retryable 4xx handling).
 
 ---
