@@ -11,3 +11,15 @@
 .verification-result{font-size:10px;font-weight:700}
 .verification-verified{color:#188456}
 .verification-invalid,.verification-error{color:#c2554c}
+.scenario-group{margin-bottom:18px}
+.scenario-group h3{margin:0 0 10px;color:#59687b;font-size:13px;font-weight:700}
+.copyable-value{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.copyable-value pre,.copyable-value code{flex:1;min-width:0;user-select:text}
+.copyable-value code{overflow-wrap:anywhere;padding:9px 10px;border-radius:7px;background:#f1f4f7;color:#526174;font:10px/1.6 'DM Mono',monospace}
+.copy-button{flex:none;padding:6px 9px;border:1px solid #dce3eb;border-radius:6px;background:white;color:#59687b;font-size:10px;font-weight:600;cursor:pointer}
+.copy-button:hover{background:#f3f7f5;color:#176b53}
+.copy-feedback{margin:0;color:#267257;font-size:10px}
+.scenario-card:focus-visible,.primary-button:focus-visible,.verify-signature-button:focus-visible,.copy-button:focus-visible,.custom-fields input:focus-visible,.custom-fields textarea:focus-visible{outline:3px solid #76b99a;outline-offset:2px}
+@media(max-width:840px){.scenario-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:580px){.scenario-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.scenario-card{min-width:0;padding:12px}.scenario-title{font-size:12px}.scenario-description{font-size:10px}.custom-fields{grid-template-columns:1fr}.event-heading{min-width:0}.event-summary{grid-template-columns:10px minmax(0,1fr) 64px 14px}.attempt-row{grid-template-columns:30px minmax(60px,1fr) 48px 42px 72px;font-size:9px}.copyable-value{flex-wrap:wrap}.copyable-value pre{width:100%;flex-basis:100%}}
+@media(max-width:360px){.scenario-grid{grid-template-columns:1fr}.shell{width:calc(100% - 28px)}}

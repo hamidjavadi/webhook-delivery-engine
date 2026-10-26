@@ -47,6 +47,9 @@ describe('event card', () => {
     const html = renderToStaticMarkup(<EventCard run={sampleRun} onReplay={vi.fn()} initiallyExpanded />);
 
     expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('aria-controls="run-details-run-1"');
+    expect(html).toContain('aria-label="Copy payload JSON"');
+    expect(html).toContain('aria-label="Verify signature for attempt 1"');
     expect(html).toContain('Replay</button>');
     expect(html).toContain('HTTP 503');
     expect(html).toContain('12 ms');
@@ -107,5 +110,45 @@ describe('event card', () => {
       await act(async () => button().click());
       expect(mounted.querySelector('[role="status"]')?.textContent).toBe('Could not verify');
     }
+  });
+
+  it('copies the exact displayed payload, idempotency key, and signature with live feedback', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const writeText = vi.fn(async (_value: string) => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const run: DemoRunView = {
+      ...sampleRun,
+      idempotencyKey: 'demo-key-1',
+      payload: { type: 'invoice.created', amount: 4200 },
+    };
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root?.render(<EventCard run={run} onReplay={vi.fn()} initiallyExpanded />));
+
+    for (const button of container.querySelectorAll<HTMLButtonElement>('.copy-button')) {
+      await act(async () => button.click());
+      expect(container.querySelector('[role="status"]')?.textContent?.toLowerCase()).toContain('copied');
+    }
+
+    expect(writeText.mock.calls.map(([value]) => value)).toEqual([
+      '{\n  "type": "invoice.created",\n  "amount": 4200\n}',
+      'demo-key-1',
+      'x-webhook-signature: sha256=abc',
+    ]);
+  });
+
+  it('announces clipboard failure and keeps values available for selection', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn(async () => { throw new Error('permission denied'); }) },
+    });
+    const mounted = mountCard();
+
+    await act(async () => mounted.querySelector<HTMLButtonElement>('.copy-button')?.click());
+
+    expect(mounted.querySelector('[role="status"]')?.textContent).toContain('Copy failed');
+    expect(mounted.querySelector('pre')?.textContent).toBe(JSON.stringify(sampleRun.payload, null, 2));
   });
 });

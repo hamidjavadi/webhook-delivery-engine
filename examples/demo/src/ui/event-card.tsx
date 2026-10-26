@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { copyToClipboard } from './actions.js';
 import type { DemoRunView } from './run-state.js';
 
 interface EventCardProps {
@@ -11,10 +12,15 @@ interface EventCardProps {
 export function EventCard({ run, onReplay, busy = false, initiallyExpanded = false }: EventCardProps) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [verification, setVerification] = useState<Record<number, 'checking' | 'verified' | 'invalid' | 'error'>>({});
+  const [copyFeedback, setCopyFeedback] = useState('');
   const latest = run.attempts.at(-1);
   const latency = run.attempts.reduce((sum, attempt) => sum + (attempt.latencyMs ?? 0), 0);
   const hasLatency = run.attempts.some((attempt) => attempt.latencyMs !== null);
   const detailId = `run-details-${run.runId}`;
+
+  async function copyValue(label: string, value: string) {
+    setCopyFeedback(await copyToClipboard(value) ? `${label} copied.` : `Copy failed for ${label.toLowerCase()}. Select and copy the displayed value.`);
+  }
 
   async function verifyAttempt(attemptNumber: number) {
     setVerification((current) => ({ ...current, [attemptNumber]: 'checking' }));
@@ -43,6 +49,7 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
         <button
           className="event-summary"
           aria-expanded={expanded}
+          aria-controls={detailId}
           onClick={() => setExpanded((value) => !value)}
         >
           <span className={`status-dot status-${run.status}`} />
@@ -61,7 +68,9 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
       {run.reason && <div className="rejection-line">Rejected safely · {run.reason}</div>}
       {latest?.error && <div className="rejection-line">Last attempt · {latest.error}</div>}
       <div className="event-details" id={detailId} hidden={!expanded}>
-        <div className="detail-block"><h4>Payload</h4><pre>{JSON.stringify(run.payload, null, 2)}</pre></div>
+        <div className="detail-block"><h4>Payload</h4><div className="copyable-value"><pre>{JSON.stringify(run.payload, null, 2)}</pre><button type="button" className="copy-button" aria-label="Copy payload JSON" onClick={() => void copyValue('Payload', JSON.stringify(run.payload, null, 2))}>Copy</button></div></div>
+        {run.idempotencyKey && <div className="detail-block"><h4>Idempotency key</h4><div className="copyable-value"><code>{run.idempotencyKey}</code><button type="button" className="copy-button" aria-label="Copy idempotency key" onClick={() => void copyValue('Idempotency key', run.idempotencyKey!)}>Copy</button></div></div>}
+        {copyFeedback && <p className="copy-feedback" role="status" aria-live="polite">{copyFeedback}</p>}
         <div className="detail-block"><h4>Attempt history</h4>
           {run.attempts.length === 0 && <p className="muted">No HTTP request was sent.</p>}
           {run.attempts.map((attempt, index) => {
@@ -85,7 +94,7 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
               <div><span>Attempt {attempt.attemptNumber} · {attempt.contentBytes} bytes</span><span>{new Date(attempt.receivedAt).toLocaleTimeString()}</span></div>
               <code>x-webhook-timestamp: {attempt.timestamp}</code>
               <code>x-webhook-event-id: {attempt.eventId}</code>
-              <code className="signature-value">x-webhook-signature: {attempt.signature}</code>
+              <div className="copyable-value"><code className="signature-value">x-webhook-signature: {attempt.signature}</code><button type="button" className="copy-button" aria-label={`Copy signature for attempt ${attempt.attemptNumber}`} onClick={() => void copyValue('Signature', `x-webhook-signature: ${attempt.signature}`)}>Copy</button></div>
               <div className="signature-verification">
                 <button
                   className="verify-signature-button"

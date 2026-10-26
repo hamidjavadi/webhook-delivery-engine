@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEMO_SCENARIOS,
+  DEMO_SCENARIO_GROUPS,
   getScenarioDestination,
   parseScenarioRequest,
 } from './scenarios.js';
@@ -14,6 +15,20 @@ describe('demo scenarios', () => {
       'max-retries',
       'ssrf-rejection',
       'custom',
+    ]);
+  });
+
+  it('groups every non-custom scenario into the two demo narratives', () => {
+    expect(DEMO_SCENARIO_GROUPS.map(({ title }) => title)).toEqual([
+      'Reliability & Retries',
+      'Security & Guardrails',
+    ]);
+    expect(DEMO_SCENARIO_GROUPS.flatMap(({ ids }) => [...ids]).sort()).toEqual([
+      'max-retries',
+      'retry-recovery',
+      'ssrf-rejection',
+      'success',
+      'terminal-401',
     ]);
   });
 

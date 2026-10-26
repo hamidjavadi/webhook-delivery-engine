@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DEMO_SCENARIOS, type DemoScenarioId, type DemoScenarioRequest } from '../scenarios.js';
+import { DEMO_SCENARIOS, DEMO_SCENARIO_GROUPS, type DemoScenarioId, type DemoScenarioRequest } from '../scenarios.js';
 import { EventCard } from './event-card.js';
 import { isRunActive, mergeRunUpdate, pollRunOnce, replayRun, type DemoRunView } from './run-state.js';
 import './styles.css';
@@ -8,6 +8,7 @@ import './styles.css';
 interface StartResponse {
   runId?: string;
   eventId?: string | null;
+  idempotencyKey?: string;
   accepted?: boolean;
   status?: string;
   reason?: string;
@@ -67,6 +68,7 @@ export function DemoPage() {
           {
             runId: result.runId!,
             eventId: null,
+            idempotencyKey: result.idempotencyKey,
             scenario,
             createdAt: new Date().toISOString(),
             status: 'rejected',
@@ -84,6 +86,7 @@ export function DemoPage() {
         {
           runId: result.runId!,
           eventId: result.eventId ?? null,
+          idempotencyKey: result.idempotencyKey ?? (body.scenario === 'custom' ? body.idempotency_key : undefined),
           scenario,
           createdAt: new Date().toISOString(),
           status: 'pending',
@@ -153,16 +156,26 @@ export function DemoPage() {
         <span className="engine-pill"><span className="pulse" /> ENGINE READY</span>
       </section>
 
-      <section className="scenario-grid" aria-label="Delivery scenarios">
-        {DEMO_SCENARIOS.filter(({ id }) => id !== 'custom').map((scenario, index) => (
-          <button className="scenario-card" key={scenario.id} onClick={() => void trigger(scenario.id)} disabled={busy}>
-            <span className={`scenario-icon scenario-icon-${index}`}>{['✓', '⟳', '401', '↻', '⛨'][index]}</span>
-            <span className="scenario-title">{scenario.label}</span>
-            <span className="scenario-description">{scenario.description}</span>
-            <span className="scenario-arrow">Run scenario <span>→</span></span>
-          </button>
-        ))}
-      </section>
+      {DEMO_SCENARIO_GROUPS.map((group) => (
+        <section className="scenario-group" key={group.title} aria-labelledby={`scenario-group-${group.title.replaceAll(' ', '-').replaceAll('&', 'and').toLowerCase()}`}>
+          <h3 id={`scenario-group-${group.title.replaceAll(' ', '-').replaceAll('&', 'and').toLowerCase()}`}>{group.title}</h3>
+          <div className="scenario-grid" aria-label={`${group.title} scenarios`}>
+            {group.ids.map((id) => {
+              const scenario = DEMO_SCENARIOS.find((item) => item.id === id);
+              if (scenario === undefined) return null;
+              const index = DEMO_SCENARIOS.findIndex((item) => item.id === scenario.id);
+              return (
+                <button className="scenario-card" key={scenario.id} aria-label={`${scenario.label}: ${scenario.description}`} onClick={() => void trigger(scenario.id)} disabled={busy}>
+                  <span className={`scenario-icon scenario-icon-${index}`}>{['✓', '⟳', '401', '↻', '⛨'][index]}</span>
+                  <span className="scenario-title">{scenario.label}</span>
+                  <span className="scenario-description">{scenario.description}</span>
+                  <span className="scenario-arrow">Run scenario <span>→</span></span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
 
       <section className="custom-panel">
         <div className="custom-heading">
@@ -173,7 +186,7 @@ export function DemoPage() {
           <label>Idempotency key<input value={customKey} maxLength={128} onChange={(event) => setCustomKey(event.target.value)} /></label>
           <label>JSON payload<textarea value={customPayload} maxLength={12000} spellCheck={false} onChange={(event) => setCustomPayload(event.target.value)} /></label>
         </div>
-        <button className="primary-button" disabled={busy} onClick={() => void trigger('custom')}>Send custom event <span>→</span></button>
+        <button className="primary-button" type="button" disabled={busy} onClick={() => void trigger('custom')}>Send custom event <span aria-hidden="true">→</span></button>
       </section>
       {notice && <p className="notice" role="status">{notice}</p>}
 

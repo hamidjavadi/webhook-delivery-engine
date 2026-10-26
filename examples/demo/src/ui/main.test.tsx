@@ -51,6 +51,17 @@ describe('demo page structure', () => {
     expect(html).toContain('Demo events and SQLite state reset');
   });
 
+  it('renders accessible scenario groups with every built-in scenario exactly once', () => {
+    const html = renderToStaticMarkup(<DemoPage />);
+    const scenarioButtons = [...html.matchAll(/class="scenario-card"/gu)];
+
+    expect(html).toContain('Reliability &amp; Retries');
+    expect(html).toContain('Security &amp; Guardrails');
+    expect(html).toContain('aria-label="Reliability &amp; Retries scenarios"');
+    expect(html).toContain('aria-label="Security &amp; Guardrails scenarios"');
+    expect(scenarioButtons).toHaveLength(5);
+  });
+
   it('adds a replayed scenario to the top of the timeline with the original request', async () => {
     const requestBodies: unknown[] = [];
     let createdRuns = 0;
