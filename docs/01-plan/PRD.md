@@ -391,3 +391,27 @@ Library consumers need a low-risk way to inspect real ingestion, retries, HMAC s
 ### Constraints, Assumptions, and Exclusions
 
 Express + Vite/React is the approved single-process stack. The server owns the engine, static assets, API, fixed mock receiver, and signal handling. External callers cannot select a target URL, client ID, signing secret, or engine configuration. The demo is educational and non-production; no user data persistence, arbitrary destination delivery, npm publication, multi-instance operation, new engine API, or DLQ/re-drive support is included. Render Free cold starts and ephemeral storage are accepted constraints.
+
+## Demo UI Enhancements Addendum (Issue #91; Planning)
+
+### Problem and Users
+
+Technical visitors can trigger runs but the timeline does not clearly communicate polling completion, attempt-by-attempt latency/backoff, or how to repeat a scenario. Signature metadata is visible without interactive verification, and debugging values cannot be copied directly.
+
+### SMART Goal
+
+For issue #91, improve `examples/demo` so a visitor can replay a scenario, follow each run until terminal state, verify observed receiver signatures, inspect attempt timing/backoff, and copy payload/key/signature values. Measure completion through focused demo tests, typecheck, lint, production build, and keyboard-accessible responsive controls.
+
+### Requirements and Acceptance Criteria
+
+1. Poll every run while ingestion or engine state is nonterminal; merge by run ID without stale responses replacing newer data. Stop only when status is conclusively `delivered`, `failed`, or `rejected` and no retry is scheduled.
+2. Replay an existing run with the same scenario inputs, including custom payload and idempotency key, and prepend the new run.
+3. Add per-receiver-attempt signature verification using the original signed bytes, timestamp, and signature on the server; return only a boolean and never expose the secret.
+4. Show measured latency for each dispatch attempt and retry timing from actual available timestamps; do not invent jitter values or label scheduled delay as dispatch latency.
+5. Add accessible copy actions for payload JSON, idempotency key, and signature value, with success/failure feedback.
+6. Group triggers under Reliability & Retries and Security & Guardrails; preserve custom events and responsive presentation.
+7. Replay, verification, copy, expansion, and scenario controls are keyboard operable; state changes are announced and narrow layouts remain usable.
+
+### Constraints and Exclusions
+
+Keep application source changes within `examples/demo`. Use server-side verification because browser HMAC would expose the secret. Verification is strictly run/attempt scoped and checks captured receiver data. No engine public API change, dependency, new scenario, durable history, deployment, or generalized webhook debugger is included. Retry visualization is limited to timestamps and values the engine actually exposes.

@@ -860,3 +860,15 @@ execution evidence, not as current v1 acceptance evidence.
 - **Runtime smoke:** production server returned HTTP 200 with `{"status":"ready"}` from `/api/health`; SIGTERM shut the process down with exit code 0. The SQLite file was isolated under `/tmp`.
 - **Not run:** delivery scenarios against a public HTTPS receiver, deployed Render health checks, and remote UI behavior. Sandbox loopback connection attempts returned `EPERM`; no SSRF exception or local receiver bypass was introduced.
 - **Decision:** local pre-deployment checks pass. Hosted scenario and Render verification remain open, and no deployment has been performed.
+
+## Demo UI Enhancement Test Plan (Issue #91; Planned)
+
+- **Polling:** exercise `ingesting → pending → processing → retry → delivered/failed`, rejected terminal runs, transient fetch errors, overlapping timer ticks, and late active responses after a terminal response. Assert last-known state retention and terminal polling cutoff.
+- **Replay:** verify built-in scenario identity and custom payload/idempotency input are preserved, new accepted runs are prepended, and a repeated idempotency-key conflict is rendered clearly.
+- **Signature verification:** create a signed receiver observation and assert valid response even after freshness duration passes; tamper with body, timestamp, or signature and assert invalid; assert unknown run/attempt errors; assert API/status data omit raw body and secret. Existing receiver acceptance tests continue to assert timestamp freshness.
+- **Scenario structure:** assert Reliability & Retries and Security & Guardrails groups cover every non-custom built-in scenario exactly once; custom event stays separate.
+- **Attempt timing:** verify measured `latencyMs` is separate from observed inter-attempt gap and scheduled `nextRetryAt`; do not assert or display unsupported jitter values.
+- **Copy and accessibility:** mock clipboard success and denial; assert exact copied payload/key/signature and live feedback; verify accessible names, expansion state, keyboard operation, focus visibility, and semantic grouping.
+- **Quality gates:** run demo tests, server/client typechecks through build, lint, and production build. Deployment/live Render checks are excluded.
+
+No validation has been run for this enhancement yet.

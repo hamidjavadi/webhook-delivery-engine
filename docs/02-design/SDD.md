@@ -567,3 +567,60 @@ sequenceDiagram
 ### 12.5 Verification and Limits
 
 Test scenario mapping and receiver response state deterministically, run association authorization, input bounds/rate limiting, signature verification, SSRF rejection, startup/readiness, shutdown draining, and static-asset/API integration. A consumer smoke test must install the root package tarball produced by `npm pack` into a separate fixture and import the built public package. The demo must not be described as proving durable persistence on Render Free, DLQ behavior, or protection against arbitrary public destination egress; arbitrary destinations are excluded by the demo API contract.
+
+## 13. Demo UI Enhancements (Issue #91; Design Approved for Review 2026-10-26)
+
+### 13.1 Goals and Boundaries
+
+Improve only the standalone `examples/demo` client and Express demo adapter. Keep the engine package API, retry behavior, deployment settings, and fixed receiver boundary unchanged. The browser owns transient replay form data for runs in the current page session; the server remains authoritative for run association, receiver attempts, raw signed bytes, and verification. No durable history is added.
+
+### 13.2 Polling and Replay
+
+The client treats `ingesting`, `pending`, `processing`, and `retry` as active. Poll one request per run at a time; a slow poll must not overlap another request for that run. Merge by `runId`, and never replace a terminal state with an older/nonterminal response. A run is poll-complete only for `delivered`, `failed`, or `rejected` with `nextRetryAt` null. Failed requests preserve last-known state and expose a connection notice; subsequent polling continues.
+
+Each client run entry retains its scenario request input for the page session. Replay posts those same inputs through the existing route and prepends the returned run. For custom events this repeats the same idempotency key; the API can return an idempotency conflict, which the UI must explain rather than silently changing the key. Replay is available only for runs started in the current page session.
+
+### 13.3 Signature Verification API
+
+`POST /api/scenarios/:runId/receiver-attempts/:attemptNumber/verify` accepts no caller-supplied verification material. The service resolves the run from its in-memory registry and finds the exact receiver observation by integer attempt number. It checks the captured original raw body, timestamp syntax, and signature with HMAC-SHA256 and the server-held demo secret. This checks integrity/authenticity of the captured request; timestamp freshness was checked when the receiver accepted it and is not re-evaluated when a visitor inspects it later. The route shares the existing per-IP request limiter. Response is `{ "valid": true|false }`; unknown run/attempt returns 404 and malformed attempt number returns 400. No caller-supplied body, timestamp, signature, key, or event ID participates.
+
+Extend private `SinkObservation` data to hold an immutable copy of the receiver's raw body alongside public metadata. Public status JSON explicitly omits it. No database migration is required; raw bytes remain process-local and within existing bounded run/attempt and request-body limits. Confirm and preserve the run-retention bound during implementation.
+
+### 13.4 Attempt Timing and UI Structure
+
+Show each `latencyMs` as measured dispatch latency. Where adjacent `attemptedAt` values exist, show the elapsed observed gap as an observed interval; for a scheduled retry, show actual `nextRetryAt` and label it scheduled. Do not call observed gap a configured backoff duration or infer jitter. Add a compact visual sequence per attempt with retry state distinct from request latency.
+
+Group controls into “Reliability & Retries” (success, retry recovery, max retries) and “Security & Guardrails” (terminal 401, SSRF rejection); keep custom event input separate. Timeline cards have a replay control separate from expansion. The scenario creation and run-status responses include the run's idempotency key so the UI can display and copy it. Payload, idempotency key, and signature copy actions copy the exact displayed string and announce success/failure. Buttons have explicit accessible names; expansion uses `aria-expanded`/`aria-controls`; status and verification results use text, not color alone. CSS adapts at narrow widths and preserves visible focus.
+
+### 13.5 Sequence
+
+```mermaid
+sequenceDiagram
+    actor Visitor
+    participant UI as Demo React UI
+    participant API as Demo Express API
+    participant Sink as Fixed Mock Receiver
+    participant Engine as Webhook Engine
+    Visitor->>UI: Select scenario or Replay
+    UI->>API: POST scenario request
+    API->>Engine: enqueue fixed receiver event
+    Engine->>Sink: HTTPS request with timestamp and HMAC
+    Sink->>Sink: Verify and capture raw body + headers
+    Sink-->>Engine: Scenario response
+    UI->>API: Poll run status
+    API-->>UI: Scoped status and public receiver metadata
+    Visitor->>UI: Verify receiver attempt
+    UI->>API: POST run/attempt verify (no signature input)
+    API->>API: Check captured bytes and headers with server secret
+    API-->>UI: Boolean verification result only
+```
+
+### 13.6 Failure, Security, and QA
+
+Verification is repeatable and read-only. It returns `valid: false` for malformed captured data or signature mismatch and does not change receiver or engine state. Timestamp freshness remains enforced at receiver acceptance but is not re-evaluated by this inspection action. Unknown IDs are scoped to the process-local run registry. Polling/network errors do not mark a run terminal. If clipboard access fails, show failure feedback and keep the value selectable. Controls support keyboard operation, visible focus, and screen-reader announcements.
+
+The HMAC verifier lives in `src/signature.ts`, separate from HTTP routing so exact-body, timestamp freshness, malformed input, and constant-time digest comparison can be tested and covered directly. Tests cover active-to-terminal polling, poll overlap and stale terminal state, replay preservation/conflict feedback, verification success/failure/tampering/unknown run/attempt, omission of raw body and secret from public responses, copy feedback, scenario grouping, and accessible control names/state. Validate with demo tests, typecheck, lint, and production build. No deployment validation is included.
+
+### 13.7 Decision References and Trade-offs
+
+Server-side verification is recorded in [ADR-0007 — Demo Signature Verification Boundary](adr/ADR-0007-demo-signature-verification-boundary.md). Raw body retention is necessary because JSON reserialization can change signed bytes; bounded in-memory retention increases memory use but avoids secret exposure and durable sensitive storage. Replay with the same idempotency key may conflict and the UI must communicate that result.
