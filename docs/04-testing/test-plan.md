@@ -880,7 +880,7 @@ execution evidence, not as current v1 acceptance evidence.
 - **Failures/open bugs:** No test, lint, or build failures. The verification endpoint is intentionally limited to captured run/attempt observations; state remains process-local and is cleared on restart, as designed.
 - **Go/No-Go:** Go for WBS 10.3 review. This record does not close the remaining demo enhancement scope or WBS 10.5 QA.
 
-WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA remains pending.
+WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results follow.
 
 ### WBS 10.4 Local Validation Record — 2026-10-26
 
@@ -891,3 +891,14 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA remains 
 - **Accessibility and responsive behavior:** controls use native buttons, explicit names, expansion relationships, status live regions, visible keyboard focus, and narrow viewport CSS. Automated interaction checks passed; no separate assistive-technology or browser matrix was run.
 - **Failures/open bugs:** No tests, lint, or build failures. Demo-wide coverage remains below the project threshold and is tracked for 10.5.
 - **Go/No-Go:** Go for WBS 10.4 review; final cross-task QA and coverage disposition remain for WBS 10.5.
+
+### WBS 10.5 Local Validation Record — 2026-10-27
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7; standalone `examples/demo` project.
+- **Demo tests and coverage:** `pnpm test` and `pnpm exec vitest run --coverage` passed: 9 files, 44 tests. Demo-wide coverage is 83.53% statements/lines, 78.16% branches, and 84.09% functions. `src/signature.ts` is 100% across statements, branches, functions, and lines; `src/ui/run-state.ts` and `src/ui/actions.ts` are also 100% across those dimensions. The 80% statements/lines target is met; branch coverage is recorded separately at 78.16%.
+- **Focused server lifecycle coverage:** Added tests for import-safe entrypoints, port validation, production static assets and SPA fallback, missing public origin, missing/empty ngrok token, Render origin fallback, hosted readiness, and SIGTERM engine shutdown. Tunnel tests cover both missing and present `.env` files without loading the developer's real environment file.
+- **Root regression suite:** `pnpm test --coverage` passed: 20 files, 401 tests; 98.54% statements/lines, 95.53% branches, and 99.09% functions.
+- **Lint and build:** Demo `pnpm lint` and `pnpm build` passed. The build runs server and client TypeScript checks followed by the Vite production build.
+- **Scope:** No root library source or public API changes. No live Render deployment or public receiver scenario was run; those remain deployment-stage checks under the hosted demo test plan.
+- **Failures/open bugs:** No test, lint, typecheck, or build failures. Demo branch coverage remains below 80% at 78.16%; it is visible in this record and no all-dimensions 80% claim is made. No release blocker was found in the focused QA scope.
+- **Go/No-Go:** Go for WBS 10.5 implementation and local QA review. Hosted deployment checks remain subject to the separate deployment approval gate.

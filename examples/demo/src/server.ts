@@ -11,7 +11,7 @@ import { createDemoApp } from './app.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   let tunnel: Listener | undefined;
   let engine: ReturnType<typeof createWebhookEngine> | undefined;
   let engineStarted = false;
@@ -96,7 +96,10 @@ async function main(): Promise<void> {
   }
 }
 
-async function createFrontend(directory: string, publicOrigin: string): Promise<{
+export async function createFrontend(
+  directory: string,
+  publicOrigin: string,
+): Promise<{
   readonly attach: (app: Express) => void;
   readonly vite?: ViteDevServer;
 }> {
@@ -144,7 +147,7 @@ async function createFrontend(directory: string, publicOrigin: string): Promise<
   };
 }
 
-function parsePort(value: string): number {
+export function parsePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new RangeError('PORT must be a valid TCP port number.');
@@ -152,8 +155,13 @@ function parsePort(value: string): number {
   return port;
 }
 
-void main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : 'Unknown startup error.';
-  process.stderr.write(`Hosted demo failed to start: ${message}\n`);
-  process.exitCode = 1;
-});
+const isDirectExecution =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectExecution) {
+  void main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : 'Unknown startup error.';
+    process.stderr.write(`Hosted demo failed to start: ${message}\n`);
+    process.exitCode = 1;
+  });
+}
