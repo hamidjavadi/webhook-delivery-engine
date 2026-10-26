@@ -107,6 +107,26 @@ describe('demo HTTP API', () => {
     expect(absent.status).toBe(404);
   });
 
+  it('returns the idempotency key in run creation and status for copy controls', async () => {
+    const engine = makeEngine({ getEvent: vi.fn(async () => makePendingEvent()) });
+    const origin = await serve(engine);
+    const created = await fetch(`${origin}/api/scenarios`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scenario: 'custom',
+        idempotency_key: 'copy-this-key',
+        payload: { type: 'demo.copy' },
+      }),
+    });
+    const createdRun = (await created.json()) as { runId: string; idempotencyKey: string };
+    const status = await fetch(`${origin}/api/scenarios/${createdRun.runId}`);
+    const statusRun = (await status.json()) as { idempotencyKey: string };
+
+    expect(createdRun.idempotencyKey).toBe('copy-this-key');
+    expect(statusRun.idempotencyKey).toBe('copy-this-key');
+  });
+
   it('rejects mock receiver calls without valid engine HMAC headers', async () => {
     const origin = await serve(makeEngine());
     const response = await fetch(`${origin}/api/mock-sink/success`, {

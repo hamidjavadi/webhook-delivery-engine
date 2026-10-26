@@ -22,6 +22,7 @@ interface RunRecord {
   readonly runId: string;
   readonly scenario: DemoScenarioId;
   readonly createdAt: string;
+  readonly idempotencyKey: string;
   eventId: string | null;
   rejection: string | null;
   state: 'ingesting' | 'accepted' | 'rejected';
@@ -172,6 +173,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
       runId,
       scenario: parsedRequest.scenario,
       createdAt,
+      idempotencyKey,
       eventId: null,
       rejection: null,
       state: 'ingesting',
@@ -194,7 +196,12 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
           }
           run.eventId = result.body.id;
           run.state = 'accepted';
-          return response.status(202).json({ runId, eventId: result.body.id, accepted: true });
+          return response.status(202).json({
+            runId,
+            eventId: result.body.id,
+            accepted: true,
+            idempotencyKey,
+          });
         }
 
         run.rejection = result.body.error;
@@ -205,6 +212,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
           accepted: false,
           status: 'rejected',
           reason: result.body.error,
+          idempotencyKey,
         });
       })
       .catch(() => response.status(503).json({ error: 'engine_unavailable' }));
@@ -223,6 +231,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
         reason: run.rejection,
         payload: run.payload,
         attempts: [],
+        idempotencyKey: run.idempotencyKey,
         receiverAttempts: toPublicReceiverAttempts(run),
       });
     }
@@ -235,6 +244,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
         status: 'ingesting',
         payload: run.payload,
         attempts: [],
+        idempotencyKey: run.idempotencyKey,
         receiverAttempts: toPublicReceiverAttempts(run),
       });
     }
@@ -316,6 +326,7 @@ function toPublicRun(
 ) {
   return {
     runId: run.runId,
+    idempotencyKey: run.idempotencyKey,
     eventId: event.id,
     scenario: run.scenario,
     createdAt: run.createdAt,

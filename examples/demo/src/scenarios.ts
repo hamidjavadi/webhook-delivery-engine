@@ -25,6 +25,11 @@ export const DEMO_SCENARIOS = [
 
 export type DemoScenarioId = (typeof DEMO_SCENARIOS)[number]['id'];
 
+export const DEMO_SCENARIO_GROUPS: ReadonlyArray<{ title: string; ids: readonly DemoScenarioId[] }> = [
+  { title: 'Reliability & Retries', ids: ['success', 'retry-recovery', 'max-retries'] },
+  { title: 'Security & Guardrails', ids: ['terminal-401', 'ssrf-rejection'] },
+];
+
 export type DemoScenarioRequest =
   | { readonly scenario: Exclude<DemoScenarioId, 'custom'> }
   | {

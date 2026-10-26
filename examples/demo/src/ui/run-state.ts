@@ -21,6 +21,7 @@ export interface ReceiverAttemptView {
 export interface DemoRunView {
   runId: string;
   eventId: string | null;
+  idempotencyKey?: string;
   scenario: DemoScenarioId;
   createdAt: string;
   status: string;

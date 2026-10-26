@@ -880,4 +880,14 @@ execution evidence, not as current v1 acceptance evidence.
 - **Failures/open bugs:** No test, lint, or build failures. The verification endpoint is intentionally limited to captured run/attempt observations; state remains process-local and is cleared on restart, as designed.
 - **Go/No-Go:** Go for WBS 10.3 review. This record does not close the remaining demo enhancement scope or WBS 10.5 QA.
 
-WBS 10.4 presentation work and WBS 10.5 final focused QA remain pending.
+WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA remains pending.
+
+### WBS 10.4 Local Validation Record — 2026-10-26
+
+- **Environment:** Node.js v24.16.0; Vitest 3.2.7; standalone `examples/demo` project.
+- **Focused checks:** scenario grouping, copy actions, accessible names/relationships, and event-card interactions passed: 4 files, 19 tests. The complete demo suite passed: 7 files, 36 tests.
+- **Coverage:** Demo-wide coverage is 70.52% statements/lines, 79.42% branches, and 81.08% functions. UI-focused coverage is 90.77% statements/lines, 85% branches, and 79.16% functions; `actions.ts` and `event-card.tsx` each measured 100% statements/lines. The remaining demo-wide gap is deferred to WBS 10.5 under the approved scoped coverage plan.
+- **Other checks:** `pnpm lint` and `pnpm build` from `examples/demo` passed. Production build includes server/client TypeScript checks and Vite output.
+- **Accessibility and responsive behavior:** controls use native buttons, explicit names, expansion relationships, status live regions, visible keyboard focus, and narrow viewport CSS. Automated interaction checks passed; no separate assistive-technology or browser matrix was run.
+- **Failures/open bugs:** No tests, lint, or build failures. Demo-wide coverage remains below the project threshold and is tracked for 10.5.
+- **Go/No-Go:** Go for WBS 10.4 review; final cross-task QA and coverage disposition remain for WBS 10.5.
