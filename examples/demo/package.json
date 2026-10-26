@@ -1,0 +1,43 @@
+{
+  "name": "webhook-delivery-engine-demo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@10.4.1",
+  "scripts": {
+    "build": "tsc --project tsconfig.server.json && tsc --noEmit --project tsconfig.client.json && vite build",
+    "dev": "tsx watch src/server.ts",
+    "dev:tunnel": "tsx watch src/dev-tunnel.ts",
+    "start": "NODE_ENV=production node dist/server.js",
+    "test": "vitest run",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "webhook-delivery-engine": "file:.package/webhook-delivery-engine-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@ngrok/ngrok": "^1.7.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "eslint": "^9.20.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.0",
+    "vite": "^7.1.5",
+    "vitest": "^3.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  }
+}

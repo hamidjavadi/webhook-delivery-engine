@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: webhook-delivery-engine-demo
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm build && pnpm pack --pack-destination examples/demo/.package && cd examples/demo && pnpm install --frozen-lockfile && pnpm build
+    startCommand: cd examples/demo && pnpm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: DEMO_HMAC_SECRET
+        generateValue: true
+      - key: DEMO_SQLITE_PATH
+        value: /tmp/webhook-delivery-engine-demo/demo.sqlite

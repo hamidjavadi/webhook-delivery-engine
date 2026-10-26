@@ -88,3 +88,33 @@ To maintain focus and avoid scope creep, the following capabilities are deferred
 - **Runtime & Type Safety:** Strict Node.js ≥ 24 runtime and TypeScript under `strict: true`.
 - **Delivery Semantics:** At-least-once delivery; consumers must remain idempotent using the system-generated event `id`.
 - **Quality Gates:** Vitest test suite with ≥80% total coverage and ≥95% coverage across critical ingestion, tenant identity/isolation, unified atomic claim, backoff, and HMAC/SSRF security code paths.
+
+## 5. Hosted Demo Scope Addendum (Approved 2026-10-25)
+
+This addendum defines a separate, non-production consumer demo for the embedded library. It does not change the public engine API or v1 package behavior.
+
+### In Scope
+
+- `examples/demo` as an independent pnpm consumer project with its own manifest, lockfile, scripts, tests, and lint/build configs. Build and pack the root package before installing the tarball dependency so the demo exercises the package contents and public exports users receive.
+- Express API and Vite/React static UI served by one Node.js 24+ process, with `/api/health` and clean awaited engine shutdown on SIGTERM/SIGINT.
+- Render Free deployment, explicitly documenting spin-down, wake latency, and ephemeral SQLite/demo state reset on restart or redeploy.
+- Fixed scenario destinations only: the demo's public HTTPS mock receiver. The UI/API do not accept arbitrary destination URLs. The library retains its existing full SSRF validation and pinned HTTPS dispatch.
+- Scenario ingestion, bounded event/attempt telemetry, status polling, HMAC header inspection, and a clear disclosure that the hosted demo uses the actual engine and transient local SQLite.
+- Scenarios: immediate 2xx; retryable 503 then 2xx; terminal 401; retryable failure through max attempts ending `failed`; SSRF rejection; custom payload/idempotency input sent only to the fixed receiver.
+
+### Out of Scope
+
+- Package publication, production use, persistent customer data, authentication for arbitrary webhook targets, arbitrary URL ingestion, library API/schema changes, database alternatives, horizontal scaling, and DLQ/re-drive claims.
+- Public exposure of process logs, raw stack traces, signing secrets, or unbounded payload/attempt history.
+- Claiming that Render Free keeps the process continuously active or preserves SQLite data across sleep/restart/redeploy.
+
+### Acceptance Criteria
+
+1. A clean checkout can install/build the root package and independently install/build/launch the demo without publishing the root package.
+2. The demo server starts the real public `createWebhookEngine` API on an isolated SQLite file, serves the UI/API in the same process, and stops the engine cleanly on termination signals.
+3. Each fixed scenario produces the documented real engine state and attempt history; retry exhaustion is shown as `failed`, never labeled as DLQ.
+4. Mock deliveries reach only the configured demo receiver using HTTPS through the unchanged production destination validation and dispatch-time address pinning; SSRF attempts are rejected.
+5. Custom ingestion validates payload and idempotency key while selecting the fixed receiver server-side; callers cannot provide a URL, client identity, secret, or engine config.
+6. UI shows scoped scenario state, attempts, timings, and delivery signature/timestamp metadata without exposing runtime secrets or raw process logs.
+7. Render Free blueprint/build/start/health behavior and ephemeral-state caveat are documented; actual hosted deployment remains a separate approval gate.
+8. Root library public API and existing package files remain unchanged; a packed-package consumer smoke test, demo tests, typecheck, lint, and build pass before implementation is marked done.

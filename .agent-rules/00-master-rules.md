@@ -16,3 +16,6 @@
   - Running scripts (npm/pnpm, build commands, tests).
   - Version control operations (git).
   - Environment/dependency management.
+
+## Communication Rule
+Always summarize your status in simple, direct developer terms. Clearly separate What I did, What is blocked, and provide an exact copy-paste approval command if waiting for user sign-off.

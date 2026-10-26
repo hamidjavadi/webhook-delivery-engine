@@ -40,6 +40,14 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 
 ---
 
+### Hosted Demo Risks (WBS 9.0)
+
+| ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| **R-13** | Public demo abused as an outbound request proxy | 3 | 5 | 15 | High | Demo Owner | Requests attempt arbitrary destination delivery or excessive scenario execution | Server-side fixed receiver URL only; strict schema/body bounds, rate limits, bounded run telemetry, no caller control of tenant/config; retain HTTPS SSRF validation and pinning | Disable scenario ingestion while leaving read-only landing/health page available; inspect sanitized counters and redeploy after fix |
+| **R-14** | Render Free sleep/restart loses SQLite and delays scenarios | 4 | 3 | 12 | High | Demo Owner | Idle spin-down, restart, or redeploy clears events or causes cold-start delay | Disclose transient state and wake behavior in UI/docs; initialize schema/engine at process startup; health endpoint reflects readiness | User reruns scenarios after wake; do not claim durability; move to paid persistent service only via separately approved scope |
+| **R-15** | Telemetry leaks payload, signature, or internal errors | 3 | 5 | 15 | High | Demo Owner | Public API returns data outside the requesting demo run or exposes logs/stacks | Bounded per-run event access, generated IDs, sanitized error summaries, payload size limits; do not expose Pino stream or secrets | Disable telemetry endpoint, clear in-memory run index on restart, investigate and rotate demo-only secret |
+
 ## 3. Contingency & Fallback Protocols
 
 ### 3.1. Concurrency Breakdown (R-01)
