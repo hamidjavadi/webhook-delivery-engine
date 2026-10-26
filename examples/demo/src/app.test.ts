@@ -14,11 +14,12 @@ afterEach(async () => {
   );
 });
 
-async function serve(engine: WebhookEngine) {
+async function serve(engine: WebhookEngine, now?: () => number) {
   const { app } = createDemoApp({
     engine,
     publicOrigin: 'https://demo.example',
     hmacSecret: 'test-only-demo-secret',
+    now,
   });
   const server = createServer(app);
   servers.push(server);
@@ -117,6 +118,35 @@ describe('demo HTTP API', () => {
     expect(response.status).toBe(401);
   });
 
+  it('rejects a receiver body that does not match its HMAC', async () => {
+    const origin = await serve(makeEngine({ getEvent: vi.fn(async () => makePendingEvent()) }));
+    const created = await fetch(`${origin}/api/scenarios`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: 'success' }),
+    });
+    const run = (await created.json()) as { runId: string; eventId: string };
+    const signedBody = JSON.stringify({ demoRunId: run.runId, webhookEventId: run.eventId });
+    const alteredBody = JSON.stringify({ demoRunId: run.runId, webhookEventId: run.eventId, changed: true });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac('sha256', 'test-only-demo-secret')
+      .update(`${timestamp}.${signedBody}`)
+      .digest('hex');
+
+    const response = await fetch(`${origin}/api/mock-sink/success`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-webhook-event-id': run.eventId,
+        'x-webhook-timestamp': timestamp,
+        'x-webhook-signature': `sha256=${signature}`,
+      },
+      body: alteredBody,
+    });
+
+    expect(response.status).toBe(401);
+  });
+
   it('records signed receiver headers for the matching demo run', async () => {
     const origin = await serve(makeEngine({ getEvent: vi.fn(async () => makePendingEvent()) }));
     const created = await fetch(`${origin}/api/scenarios`, {
@@ -153,5 +183,67 @@ describe('demo HTTP API', () => {
     expect(result.receiverAttempts).toMatchObject([
       { signature: `sha256=${signature}`, timestamp },
     ]);
+    expect(result.receiverAttempts[0]).not.toHaveProperty('rawBody');
+    expect(JSON.stringify(result)).not.toContain(body);
+  });
+
+  it('verifies a captured receiver signature after the freshness window without exposing raw bytes', async () => {
+    let currentTime = Date.now();
+    const origin = await serve(makeEngine({ getEvent: vi.fn(async () => makePendingEvent()) }), () => currentTime);
+    const created = await fetch(`${origin}/api/scenarios`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: 'success' }),
+    });
+    const run = (await created.json()) as { runId: string; eventId: string };
+    const body = JSON.stringify({
+      demoRunId: run.runId,
+      type: 'demo.success',
+      webhookEventId: run.eventId,
+    });
+    const timestamp = String(Math.floor(currentTime / 1000));
+    const signature = createHmac('sha256', 'test-only-demo-secret')
+      .update(`${timestamp}.${body}`)
+      .digest('hex');
+    await fetch(`${origin}/api/mock-sink/success`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-webhook-event-id': run.eventId,
+        'x-webhook-timestamp': timestamp,
+        'x-webhook-signature': `sha256=${signature}`,
+      },
+      body,
+    });
+    currentTime += 6 * 60 * 1000;
+
+    const response = await fetch(
+      `${origin}/api/scenarios/${run.runId}/receiver-attempts/1/verify`,
+      { method: 'POST' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ valid: true });
+
+    const absentAttempt = await fetch(
+      `${origin}/api/scenarios/${run.runId}/receiver-attempts/2/verify`,
+      { method: 'POST' },
+    );
+    expect(absentAttempt.status).toBe(404);
+  });
+
+  it('rejects verification requests for unknown observations and malformed attempt numbers', async () => {
+    const origin = await serve(makeEngine());
+    const unknownRun = await fetch(
+      `${origin}/api/scenarios/${'a'.repeat(48)}/receiver-attempts/1/verify`,
+      { method: 'POST' },
+    );
+    const malformedAttempt = await fetch(
+      `${origin}/api/scenarios/${'a'.repeat(48)}/receiver-attempts/0/verify`,
+      { method: 'POST' },
+    );
+
+    expect(unknownRun.status).toBe(404);
+    expect(malformedAttempt.status).toBe(400);
   });
 });
