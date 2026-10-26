@@ -48,6 +48,14 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | **R-14** | Render Free sleep/restart loses SQLite and delays scenarios | 4 | 3 | 12 | High | Demo Owner | Idle spin-down, restart, or redeploy clears events or causes cold-start delay | Disclose transient state and wake behavior in UI/docs; initialize schema/engine at process startup; health endpoint reflects readiness | User reruns scenarios after wake; do not claim durability; move to paid persistent service only via separately approved scope |
 | **R-15** | Telemetry leaks payload, signature, or internal errors | 3 | 5 | 15 | High | Demo Owner | Public API returns data outside the requesting demo run or exposes logs/stacks | Bounded per-run event access, generated IDs, sanitized error summaries, payload size limits; do not expose Pino stream or secrets | Disable telemetry endpoint, clear in-memory run index on restart, investigate and rotate demo-only secret |
 
+### Demo UI Enhancement Risks (Issue #91)
+
+| ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| **R-16** | Verification leaks the secret or permits cross-run checks | 2 | 5 | 10 | High | Demo Security Owner | Response includes key material or caller selects unrelated body/attempt | Use server-held key, captured bytes, strict run/attempt association, boolean-only result; test unknown IDs and malformed state | Disable verifier route and retain passive signature display until fixed |
+| **R-17** | Polling falsely declares completion or remains stale | 3 | 3 | 9 | Medium | Demo UI Owner | Transient failures, poll races, or unseen retry transition | Merge by run ID, preserve last active state on transient errors, test transitions and terminal cutoff | Surface paused connection state and permit refresh |
+| **R-18** | Retry visualization overstates backoff/jitter | 3 | 3 | 9 | Medium | Demo UI Owner | UI derives a precise delay unavailable in engine telemetry | Separate measured latency from observed scheduling; show only available timestamps | Remove unsupported estimates and show schedule timestamps only |
+
 ## 3. Contingency & Fallback Protocols
 
 ### 3.1. Concurrency Breakdown (R-01)

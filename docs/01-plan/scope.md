@@ -118,3 +118,29 @@ This addendum defines a separate, non-production consumer demo for the embedded 
 6. UI shows scoped scenario state, attempts, timings, and delivery signature/timestamp metadata without exposing runtime secrets or raw process logs.
 7. Render Free blueprint/build/start/health behavior and ephemeral-state caveat are documented; actual hosted deployment remains a separate approval gate.
 8. Root library public API and existing package files remain unchanged; a packed-package consumer smoke test, demo tests, typecheck, lint, and build pass before implementation is marked done.
+
+## 6. Demo UI Enhancements Scope (Issue #91; Planning)
+
+### In Scope
+
+- Robust polling/state merging for active runs through conclusive terminal state.
+- Per-card replay preserving scenario parameters, including custom payload and idempotency key, with the new run prepended.
+- Run/attempt-scoped server signature verification against captured raw body, timestamp, and signature using the server-held secret; API returns only valid/invalid.
+- Per-attempt measured latency and observed retry schedule context without claiming unavailable jitter precision.
+- Copy actions for payload JSON, idempotency key, and signature with accessible result announcements.
+- Reliability & Retries and Security & Guardrails trigger groups, keyboard access, and narrow-screen usability.
+- Demo-local source changes and planning/design/test records.
+
+### Out of Scope
+
+Exposing HMAC secrets or browser-side verification; library API/retry algorithm changes; arbitrary destinations or new scenarios; durable history; dependencies; deployment or publishing.
+
+### Acceptance Criteria
+
+1. Polling tracks `ingesting`, `pending`, `processing`, and `retry`, tolerates transient failures, prevents stale overwrites, and stops after terminal state with no scheduled retry.
+2. Replay preserves original scenario parameters, prepends a distinct run, and surfaces expected idempotency conflicts clearly.
+3. Verification is bound to captured bytes and run/attempt association; tests cover valid, invalid, unknown run, and unknown attempt; no secret is returned.
+4. Attempt rows show measured latency; retry timing is identified as scheduled/observed and uses actual timestamps.
+5. Copy actions transfer exact displayed values and announce success/failure accessibly.
+6. Grouped controls are keyboard accessible and usable on narrow viewports.
+7. Demo tests, typecheck, lint, and production build pass with no root library source/public API changes.
