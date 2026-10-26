@@ -832,3 +832,31 @@ execution evidence, not as current v1 acceptance evidence.
   re-audit found no new traceability or implementation findings. The
   stakeholder approved the checkpoint disposition on 2026-10-25, as recorded
   in `docs/01-plan/phase-gate-audit.md`.
+
+## Hosted Demo Test Plan Addendum (WBS 9.0; Local QA In Progress)
+
+- **Separate consumer project:** install the root package using its pnpm lockfile; build and pack the library, then install and run the demo from `examples/demo` using its own pnpm lockfile and packed package dependency. The demo's clean install/import verifies the package contents and public export without registry publication.
+- **Server lifecycle:** start readiness only after engine migrations; verify static UI and health/API share one listener; SIGTERM/SIGINT stop intake and await `engine.stop()`.
+- **Scenario integration:** exercise fixed receiver 200, retryable 503 recovery to 2xx, terminal 401, persistent 503 through configured max attempts ending `failed`, SSRF rejection, and bounded custom payload/idempotency. Assert attempt sequence, final engine state, and no receiver hit for rejected destinations.
+- **Receiver security:** verify HMAC signature/timestamp and body binding, invalid/missing signature rejection, and that the demo secret is never returned or logged.
+- **API security:** verify no route accepts arbitrary URL/clientId/secret/config; payload and key bounds, JSON content type, scenario allowlist, rate limits, unguessable run IDs, cross-run access rejection, bounded retention, and sanitized errors.
+- **UI integration:** verify scenario controls, status polling, attempt timeline, signature/timestamp metadata, and visible Render Free sleep/reset disclosure; no raw logs or stack traces.
+- **Host verification limitation:** local loopback receivers must remain rejected by production SSRF policy. Full self-receiver end-to-end behavior therefore requires the approved public HTTPS Render origin after deployment approval; local pre-deploy QA covers route/receiver behavior and existing dispatcher/SSRF tests without adding a bypass.
+- **Quality:** demo unit/integration tests, packed-package install/import smoke, demo typecheck/lint/build, and root security/full suites plus coverage. Report actual results separately; no planned check is a pass until executed.
+
+### Local Validation Record — 2026-10-25
+
+- **Passed:** root package `npm run build`.
+- **Passed:** demo TypeScript and Vite production build via `npm run build` from `examples/demo`.
+- **Passed:** root `npm run lint`, including demo TypeScript/TSX sources.
+- **Not run:** automated tests, pnpm frozen-lockfile installation, runtime scenario smoke, and live Render checks. These remain open; build and lint results do not establish scenario correctness or deployment readiness.
+
+### Local Validation Record — 2026-10-26 (Standalone Project QA)
+
+- **Environment:** Node.js v24.16.0, Linux x64, pnpm 10.4.1, Vitest 3.2.7.
+- **Install and package boundary:** root `pnpm install --frozen-lockfile` and the independent demo `pnpm install --frozen-lockfile` passed. The demo dependency resolves from the root `pnpm pack` tarball; importing and building against its public package entry passed. The demo's project-local `.npmrc` uses the hoisted node linker so the SQLite native install can find `node-gyp` when this host has no prebuilt binary.
+- **Tests and coverage:** demo `pnpm test` passed (2 files, 9 tests); root `pnpm test` passed (20 files, 401 tests). Root coverage passed at 98.54% statements/lines, 95.54% branches, and 99.09% functions. Demo-specific coverage was not measured separately.
+- **Lint and build:** root and demo lint passed; root build and demo TypeScript/Vite production build passed.
+- **Runtime smoke:** production server returned HTTP 200 with `{"status":"ready"}` from `/api/health`; SIGTERM shut the process down with exit code 0. The SQLite file was isolated under `/tmp`.
+- **Not run:** delivery scenarios against a public HTTPS receiver, deployed Render health checks, and remote UI behavior. Sandbox loopback connection attempts returned `EPERM`; no SSRF exception or local receiver bypass was introduced.
+- **Decision:** local pre-deployment checks pass. Hosted scenario and Render verification remain open, and no deployment has been performed.

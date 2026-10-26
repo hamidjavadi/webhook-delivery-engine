@@ -69,6 +69,13 @@ The supported package interface is the TypeScript library. The package root does
 See the [Embedded API Guide](docs/API.md) for option details, ingestion results,
 tenant-scoped queries, security expectations, and development commands.
 
+## Interactive Demo
+
+The [hosted package demo](examples/demo/README.md) shows successful delivery,
+retry recovery, terminal failure, idempotency, and attempt history using the
+public package interface. Its Render deployment is separate from the library
+release and is not automatically deployed by this repository.
+
 ## Development
 
 | Script          | Description                                         |

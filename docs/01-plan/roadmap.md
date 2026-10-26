@@ -92,3 +92,7 @@
 - Web-based administrative dashboard for inspection.
 - Dead-Letter Queue (DLQ) re-drive interface.
 - Official client-side HMAC signature verification SDKs for consumer applications.
+
+### Hosted Interactive Demo — Separate Non-Production Deliverable
+
+Approved 2026-10-25; implementation is in progress after stakeholder authorization to continue. WBS 9.1–9.5 sequence the standalone package consumer/server, fixed receiver/scenarios, UI/telemetry, Render Free configuration, then QA and records. Estimated effort is 22 hours and is a planning estimate, not a delivery commitment. As of 2026-10-26, root and demo frozen installs, builds, tests, and lint pass; local production readiness and SIGTERM smoke also pass. Full receiver scenarios over public HTTPS and live Render checks remain open. A live Render deployment requires separate explicit release/deployment approval. Render Free sleep and ephemeral data reset are accepted and must be visible to users.

@@ -106,6 +106,27 @@ Never delete or rewrite the live database to resolve a migration or recovery
 failure. Preserve the database and logs for investigation and escalate to the
 project engineering owner.
 
+## Hosted Demo Operations (WBS 9.0; Render Free; Pre-Deployment)
+
+The hosted demo is a separate, non-production Express + Vite/React pnpm project. One Node.js 24+ process owns the Express API/static assets, fixed HTTPS mock receiver, and embedded engine. Build the root package with pnpm, then install and build `examples/demo` with its own lockfile; no registry publication is needed for this deployment. The app must expose `/api/health` with not-ready status until engine startup and migrations complete.
+
+Render Free may spin the service down after inactivity, has cold-start delay, and does not provide persistent disk. The demo's local SQLite file, in-memory run index, and scenario counters are transient and can reset on sleep/restart/redeploy. The UI must disclose this. Configure a public HTTPS receiver origin for the same demo service; if missing or invalid, fail startup/readiness. No loopback exception or custom dispatcher is permitted. Only fixed scenario and receiver destinations are accepted. Do not use this demo for production event data.
+
+### Build, Start, and Verify
+
+The Render Blueprint should pin Node.js 24+, install the root package with pnpm, build and pack the root library into `examples/demo/.package`, then install from the demo's own pnpm lockfile and run its production build. Start the demo's production Node server bound to Render's `PORT` and all interfaces. Verify deployment only after separate deployment approval:
+
+1. Confirm `/api/health` becomes ready only after engine migrations finish.
+2. Trigger immediate success, retry recovery, terminal 401, retry exhaustion (`failed`), and SSRF rejection; confirm attempt history and status through the UI.
+3. Confirm requests target only the configured HTTPS demo receiver and signed headers verify there.
+4. Confirm SIGTERM invokes and awaits `engine.stop()` and the process exits within the platform grace window.
+5. Confirm the public API does not return raw Pino logs, stack traces, secrets, or another run's event data.
+6. Observe and document the expected reset after a service restart; do not treat lost demo records as a recovery defect.
+
+### Demo Rollback and Disablement
+
+If the public API allows a caller-selected URL, leaks cross-run data/secrets, bypasses the production SSRF checks, or creates unbounded load, disable scenario ingestion or roll back the demo deployment immediately. Preserve sanitized diagnostics, fix and revalidate locally, then require approval before redeploy. A paid persistent service is outside this approved plan and requires a new cost decision.
+
 ## Troubleshooting and Escalation
 
 - **Migration/startup failure:** keep the service stopped, preserve the SQLite

@@ -373,3 +373,21 @@ An item/release is **Done** only when ALL of the following hold:
 ---
 
 _End of PRD v1.0.0 — structured per `.agent-rules/templates/PRD-template.md`; section order and required headings preserved._
+
+## Hosted Demo Addendum (Approved 2026-10-25)
+
+### Problem and Users
+
+Library consumers need a low-risk way to inspect real ingestion, retries, HMAC signing, and terminal failures without installing or running unfamiliar package code locally. The hosted demo serves the UI and embedded engine from one Node process and routes scenarios only to its own fixed HTTPS mock receiver.
+
+### Goals and Acceptance
+
+- Demonstrate immediate success, retry recovery, terminal 401, max-attempt exhaustion, SSRF rejection, and custom payload/idempotency against a fixed receiver.
+- Show event state, attempts, timestamps, latency, and HMAC signature/timestamp metadata from bounded, run-scoped telemetry.
+- Keep the demo in `examples/demo` as an independent pnpm project with its own lockfile and configs. Build and pack the root package before installing its tarball dependency; verify the consumer boundary without publishing to npm.
+- Host on Render Free with an explicit notice that idle spin-down, restarts, and redeploys reset ephemeral SQLite and demo state. The service is not represented as continuously running or durable.
+- Preserve the library's public API, production SSRF policy, pinned dispatcher, and current `failed` terminal state. Do not describe retry exhaustion as a DLQ.
+
+### Constraints, Assumptions, and Exclusions
+
+Express + Vite/React is the approved single-process stack. The server owns the engine, static assets, API, fixed mock receiver, and signal handling. External callers cannot select a target URL, client ID, signing secret, or engine configuration. The demo is educational and non-production; no user data persistence, arbitrary destination delivery, npm publication, multi-instance operation, new engine API, or DLQ/re-drive support is included. Render Free cold starts and ephemeral storage are accepted constraints.

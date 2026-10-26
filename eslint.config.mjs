@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
+    ignores: ['dist/**', 'examples/**', 'coverage/**', 'node_modules/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -34,8 +34,7 @@ export default tseslint.config(
             },
             {
               name: 'console',
-              message:
-                'Please use the application structured logger (pino) instead of console.',
+              message: 'Please use the application structured logger (pino) instead of console.',
             },
           ],
         },
@@ -43,13 +42,7 @@ export default tseslint.config(
     },
   },
   {
-    files: [
-      'tests/**/*.ts',
-      'test/**/*.ts',
-      '**/*.spec.ts',
-      '**/*.test.ts',
-      'scripts/**/*.ts',
-    ],
+    files: ['tests/**/*.ts', 'test/**/*.ts', '**/*.spec.ts', '**/*.test.ts', 'scripts/**/*.ts'],
     rules: {
       'no-console': 'off',
       'no-restricted-imports': 'off',

@@ -11,7 +11,7 @@
 | **Linked Scope** | `scope.md` (v1.0.0, Approved/Baseline)                   |
 | **Linked WBS**   | `WBS.md` (v1.0.0, Approved / Ready for SDD)              |
 | **Linked Risks** | `risks.md`                                               |
-| **Related ADRs** | `docs/02-design/adr/`                                      |
+| **Related ADRs** | `docs/02-design/adr/` including ADR-0007 for the hosted demo |
 
 ---
 
@@ -518,3 +518,52 @@ src/
 ---
 
 _End of SDD v1.0.0 — structured per `templates/SDD-template.md`; section order and required headings preserved._
+
+## 12. Hosted Demo Design (Approved 2026-10-25; Implementation in Progress)
+
+### 12.1 Boundary and Process
+
+Keep `examples/demo` as an independent pnpm consumer project with its own package manifest, lockfile, test/lint/build configuration, and dependencies. Build and pack the root library before installing/building the demo; its dependency points to that tarball. Express serves versioned demo API routes and the Vite-built React assets from one Node.js 24+ process. The demo imports only the root package public API (`createWebhookEngine`); it does not import private `src/` internals or modify the public API. On startup, create a demo-only SQLite database under the service's writable local directory, await engine startup/migrations, then report ready. On SIGTERM/SIGINT, stop accepting scenario requests, await `engine.stop()`, and exit.
+
+Render Free is the approved initial host. Its local database is intentionally ephemeral: the process can sleep after inactivity and local data can be lost on sleep/restart/redeploy. Cold-start/readiness behavior and reset semantics must be disclosed. This demo is single-process and non-production; no horizontal scaling or durable user data is supported.
+
+### 12.2 Destination and Scenario Flow
+
+The server configures one fixed HTTPS URL for its own mock receiver, derived from an explicit public base URL setting. A scenario request selects an enumerated scenario; the server constructs the event and destination. Custom ingestion accepts bounded payload and idempotency key only. No route accepts a target URL, `clientId`, HMAC secret, or engine options. Ingestion and every dispatch continue through the existing library validation and pinned HTTPS dispatcher. The demo must fail closed if the receiver base URL is absent, malformed, non-HTTPS, or not on the configured demo host allowlist. It must not introduce a loopback/private-address exception or custom bypass transport.
+
+The mock receiver uses signed request headers to record a bounded attempt summary. It responds according to the scenario's server-owned run state: 200 immediately; retryable 503 for configured initial attempts then 200; 401 terminally; persistent 503 until engine max attempts (final engine state `failed`); and a private/loopback destination scenario that proves ingestion/dispatch rejection without sending a request. The receiver validates timestamp/signature using the demo secret before accepting scenario requests. It never emits the signing secret. Full signature visibility, if shown, is limited to the demo UI and demo-only secret; API responses must not expose the secret itself.
+
+### 12.3 API and Data Exposure
+
+Routes are limited to health/readiness, scenario creation, custom fixed-destination ingestion, and run-scoped status/attempt reads. API errors use stable generic messages; detailed stack traces and Pino logs stay on server output and are not streamed to visitors. Requests enforce JSON content type, payload/key length limits, scenario enum validation, and per-IP scenario rate limiting. Responses are bounded and include event ID, status, attempt ordinal/status/timing, and sanitized error category. Run identifiers are unguessable and every read verifies the run-to-event association held by the demo service; callers cannot query arbitrary engine IDs. In-memory run association and telemetry indexes may reset on process restart and are never treated as durable records.
+
+The React UI provides fixed scenario buttons, custom payload/idempotency fields, a polling event table/timeline, attempt details, and a visible notice: actual embedded engine, demo-owned HTTPS receiver, temporary SQLite, and Render Free sleep/reset behavior. It does not expose raw Pino logs or arbitrary URL entry.
+
+### 12.4 Sequence
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App as Express Demo Process
+    participant Engine as Public Engine API
+    participant DB as Demo SQLite
+    participant Sink as Fixed HTTPS Mock Receiver
+    Browser->>App: POST scenario (enum, bounded input)
+    App->>App: Validate input, rate limit, assign run ID
+    App->>Engine: enqueue fixed HTTPS receiver URL
+    Engine->>DB: Persist event and idempotency key
+    Engine->>Sink: Pinned HTTPS POST + HMAC headers
+    Sink->>Sink: Verify signature/timestamp, apply scenario response
+    Sink-->>Engine: 2xx / retryable 503 / terminal 401
+    Engine->>DB: Persist attempt and resulting state
+    Browser->>App: Poll status/attempts for run ID
+    App->>Engine: Tenant-scoped event/attempt query
+    Engine->>DB: Read state
+    DB-->>Engine: Event and attempt records
+    Engine-->>App: Scoped result
+    App-->>Browser: Bounded sanitized telemetry
+```
+
+### 12.5 Verification and Limits
+
+Test scenario mapping and receiver response state deterministically, run association authorization, input bounds/rate limiting, signature verification, SSRF rejection, startup/readiness, shutdown draining, and static-asset/API integration. A consumer smoke test must install the root package tarball produced by `npm pack` into a separate fixture and import the built public package. The demo must not be described as proving durable persistence on Render Free, DLQ behavior, or protection against arbitrary public destination egress; arbitrary destinations are excluded by the demo API contract.
