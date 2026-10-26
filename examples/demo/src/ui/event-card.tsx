@@ -10,10 +10,32 @@ interface EventCardProps {
 
 export function EventCard({ run, onReplay, busy = false, initiallyExpanded = false }: EventCardProps) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [verification, setVerification] = useState<Record<number, 'checking' | 'verified' | 'invalid' | 'error'>>({});
   const latest = run.attempts.at(-1);
   const latency = run.attempts.reduce((sum, attempt) => sum + (attempt.latencyMs ?? 0), 0);
   const hasLatency = run.attempts.some((attempt) => attempt.latencyMs !== null);
   const detailId = `run-details-${run.runId}`;
+
+  async function verifyAttempt(attemptNumber: number) {
+    setVerification((current) => ({ ...current, [attemptNumber]: 'checking' }));
+    try {
+      const response = await fetch(
+        `/api/scenarios/${encodeURIComponent(run.runId)}/receiver-attempts/${attemptNumber}/verify`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setVerification((current) => ({ ...current, [attemptNumber]: 'error' }));
+        return;
+      }
+      const result = (await response.json()) as { valid?: boolean };
+      setVerification((current) => ({
+        ...current,
+        [attemptNumber]: result.valid === true ? 'verified' : result.valid === false ? 'invalid' : 'error',
+      }));
+    } catch {
+      setVerification((current) => ({ ...current, [attemptNumber]: 'error' }));
+    }
+  }
 
   return (
     <article className="event-card">
@@ -57,12 +79,29 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
         </div>
         <div className="detail-block"><h4>Signed receiver headers</h4>
           {run.receiverAttempts.length === 0 && <p className="muted">No signed request reached the receiver.</p>}
-          {run.receiverAttempts.map((attempt) => <div className="signature-card" key={attempt.attemptNumber}>
-            <div><span>Attempt {attempt.attemptNumber} · {attempt.contentBytes} bytes</span><span>{new Date(attempt.receivedAt).toLocaleTimeString()}</span></div>
-            <code>x-webhook-timestamp: {attempt.timestamp}</code>
-            <code>x-webhook-event-id: {attempt.eventId}</code>
-            <code className="signature-value">x-webhook-signature: {attempt.signature}</code>
-          </div>)}
+          {run.receiverAttempts.map((attempt) => {
+            const result = verification[attempt.attemptNumber];
+            return <div className="signature-card" key={attempt.attemptNumber}>
+              <div><span>Attempt {attempt.attemptNumber} · {attempt.contentBytes} bytes</span><span>{new Date(attempt.receivedAt).toLocaleTimeString()}</span></div>
+              <code>x-webhook-timestamp: {attempt.timestamp}</code>
+              <code>x-webhook-event-id: {attempt.eventId}</code>
+              <code className="signature-value">x-webhook-signature: {attempt.signature}</code>
+              <div className="signature-verification">
+                <button
+                  className="verify-signature-button"
+                  type="button"
+                  aria-label={`Verify signature for attempt ${attempt.attemptNumber}`}
+                  disabled={result === 'checking'}
+                  onClick={() => void verifyAttempt(attempt.attemptNumber)}
+                >
+                  {result === 'checking' ? 'Verifying…' : 'Verify Signature'}
+                </button>
+                {result && result !== 'checking' && <span role="status" className={`verification-result verification-${result}`}>
+                  {result === 'verified' ? 'Verified' : result === 'invalid' ? 'Invalid' : 'Could not verify'}
+                </span>}
+              </div>
+            </div>;
+          })}
         </div>
       </div>
     </article>

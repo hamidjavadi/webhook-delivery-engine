@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import express, { type Express, type Request, type Response } from 'express';
 import type {
   AttemptRecord,
@@ -12,13 +12,12 @@ import {
   parseScenarioRequest,
   type DemoScenarioId,
 } from './scenarios.js';
+import { verifySignature } from './signature.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_RUNS = 200;
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 30;
-const SIGNATURE_MAX_AGE_SECONDS = 300;
-
 interface RunRecord {
   readonly runId: string;
   readonly scenario: DemoScenarioId;
@@ -37,6 +36,7 @@ interface SinkObservation {
   readonly signature: string;
   readonly eventId: string;
   readonly contentBytes: number;
+  readonly rawBody: Buffer;
 }
 
 export interface DemoAppOptions {
@@ -116,6 +116,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
         signature,
         eventId,
         contentBytes: body.byteLength,
+        rawBody: Buffer.from(body),
       });
 
       switch (run.scenario) {
@@ -222,7 +223,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
         reason: run.rejection,
         payload: run.payload,
         attempts: [],
-        receiverAttempts: run.observedAttempts,
+        receiverAttempts: toPublicReceiverAttempts(run),
       });
     }
 
@@ -234,7 +235,7 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
         status: 'ingesting',
         payload: run.payload,
         attempts: [],
-        receiverAttempts: run.observedAttempts,
+        receiverAttempts: toPublicReceiverAttempts(run),
       });
     }
 
@@ -246,6 +247,36 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
     } catch {
       return response.status(503).json({ error: 'engine_unavailable' });
     }
+  });
+
+  app.post('/api/scenarios/:runId/receiver-attempts/:attemptNumber/verify', (request, response) => {
+    const remote = request.socket.remoteAddress ?? 'unknown';
+    if (!allowRequest(remote, requestTimes, now())) {
+      return response.status(429).json({ error: 'rate_limited' });
+    }
+
+    const attemptText = request.params.attemptNumber;
+    const attemptNumber = Number(attemptText);
+    if (!/^\d+$/u.test(attemptText) || !Number.isSafeInteger(attemptNumber) || attemptNumber < 1) {
+      return rejectRequest(response, 'Invalid receiver attempt number.');
+    }
+
+    const run = runs.get(request.params.runId);
+    if (run === undefined) return response.status(404).json({ error: 'not_found' });
+    const observation = run.observedAttempts.find((attempt) => attempt.attemptNumber === attemptNumber);
+    if (observation === undefined) return response.status(404).json({ error: 'not_found' });
+
+    const receivedAt = Date.parse(observation.receivedAt);
+    const valid =
+      Number.isFinite(receivedAt) &&
+      verifySignature(
+        observation.rawBody,
+        observation.timestamp,
+        observation.signature,
+        options.hmacSecret,
+        receivedAt,
+      );
+    return response.json({ valid });
   });
 
   options.attachFrontend?.(app);
@@ -261,26 +292,6 @@ export function createDemoApp(options: DemoAppOptions): { readonly app: Express 
   );
 
   return { app };
-}
-
-function verifySignature(
-  body: Buffer,
-  timestamp: string,
-  signature: string,
-  secret: string,
-  nowMs: number,
-): boolean {
-  if (!/^\d{1,12}$/u.test(timestamp) || !/^sha256=[a-f0-9]{64}$/u.test(signature)) return false;
-  const timestampMs = Number(timestamp) * 1000;
-  if (!Number.isSafeInteger(timestampMs) || Math.abs(nowMs - timestampMs) > SIGNATURE_MAX_AGE_SECONDS * 1000) {
-    return false;
-  }
-  const expected = createHmac('sha256', secret)
-    .update(`${timestamp}.`)
-    .update(body)
-    .digest();
-  const supplied = Buffer.from(signature.slice('sha256='.length), 'hex');
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 function asDemoPayload(payload: unknown, runId: string): IngestionRequest['payload'] {
@@ -320,6 +331,10 @@ function toPublicRun(
       outcome: attempt.outcome,
       error: attempt.error,
     })),
-    receiverAttempts: run.observedAttempts,
+    receiverAttempts: toPublicReceiverAttempts(run),
   };
+}
+
+function toPublicReceiverAttempts(run: RunRecord) {
+  return run.observedAttempts.map(({ rawBody: _rawBody, ...attempt }) => attempt);
 }

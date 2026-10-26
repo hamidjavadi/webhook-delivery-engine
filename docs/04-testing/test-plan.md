@@ -861,7 +861,7 @@ execution evidence, not as current v1 acceptance evidence.
 - **Not run:** delivery scenarios against a public HTTPS receiver, deployed Render health checks, and remote UI behavior. Sandbox loopback connection attempts returned `EPERM`; no SSRF exception or local receiver bypass was introduced.
 - **Decision:** local pre-deployment checks pass. Hosted scenario and Render verification remain open, and no deployment has been performed.
 
-## Demo UI Enhancement Test Plan (Issue #91; Planned)
+## Demo UI Enhancement Test Plan (Issue #91; Implementation in Progress)
 
 - **Polling:** exercise `ingesting → pending → processing → retry → delivered/failed`, rejected terminal runs, transient fetch errors, overlapping timer ticks, and late active responses after a terminal response. Assert last-known state retention and terminal polling cutoff.
 - **Replay:** verify built-in scenario identity and custom payload/idempotency input are preserved, new accepted runs are prepended, and a repeated idempotency-key conflict is rendered clearly.
@@ -871,4 +871,13 @@ execution evidence, not as current v1 acceptance evidence.
 - **Copy and accessibility:** mock clipboard success and denial; assert exact copied payload/key/signature and live feedback; verify accessible names, expansion state, keyboard operation, focus visibility, and semantic grouping.
 - **Quality gates:** run demo tests, server/client typechecks through build, lint, and production build. Deployment/live Render checks are excluded.
 
-No validation has been run for this enhancement yet.
+### WBS 10.3 Local Validation Record — 2026-10-26
+
+- **Environment:** Node.js v24.16.0; Vitest 3.2.7; standalone `examples/demo` project.
+- **Focused regression:** `pnpm exec vitest run src/ui/event-card.test.tsx src/signature.test.ts src/app.test.ts` passed: 3 files, 16 tests. This included valid and invalid HMAC inputs, exact captured-byte verification after the freshness window, unknown/malformed run-attempt scope checks, raw-body omission from public JSON, and Verified/Invalid UI states.
+- **Full demo suite and coverage:** `pnpm exec vitest run --coverage` passed: 7 files, 33 tests. Overall demo coverage: 69.65% statements/lines, 77.19% branches, and 76.47% functions. `src/signature.ts` measured 100% in all dimensions; `src/ui/event-card.tsx` measured 100% statements/lines, 90% branches, and 80% functions. The demo-wide 80% gap remains open for WBS 10.5 under the approved coverage plan.
+- **Other checks:** `pnpm lint` and `pnpm build` from `examples/demo` passed. No root library source or public API changes were made.
+- **Failures/open bugs:** No test, lint, or build failures. The verification endpoint is intentionally limited to captured run/attempt observations; state remains process-local and is cleared on restart, as designed.
+- **Go/No-Go:** Go for WBS 10.3 review. This record does not close the remaining demo enhancement scope or WBS 10.5 QA.
+
+WBS 10.4 presentation work and WBS 10.5 final focused QA remain pending.
