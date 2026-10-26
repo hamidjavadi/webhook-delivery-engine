@@ -1,39 +1,9 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DEMO_SCENARIOS, type DemoScenarioId } from '../scenarios.js';
+import { DEMO_SCENARIOS, type DemoScenarioId, type DemoScenarioRequest } from '../scenarios.js';
+import { EventCard } from './event-card.js';
+import { isRunActive, mergeRunUpdate, pollRunOnce, replayRun, type DemoRunView } from './run-state.js';
 import './styles.css';
-
-interface AttemptView {
-  attemptNumber: number;
-  attemptedAt: string;
-  statusCode: number | null;
-  latencyMs: number | null;
-  outcome: string;
-  error: string | null;
-}
-
-interface ReceiverAttemptView {
-  attemptNumber: number;
-  receivedAt: string;
-  timestamp: string;
-  signature: string;
-  eventId: string;
-  contentBytes: number;
-}
-
-interface RunView {
-  runId: string;
-  eventId: string | null;
-  scenario: DemoScenarioId;
-  createdAt: string;
-  status: string;
-  attemptCount?: number;
-  nextRetryAt?: string | null;
-  reason?: string | null;
-  payload?: unknown;
-  attempts: AttemptView[];
-  receiverAttempts: ReceiverAttemptView[];
-}
 
 interface StartResponse {
   runId?: string;
@@ -44,8 +14,9 @@ interface StartResponse {
   error?: string;
 }
 
-function DemoPage() {
-  const [runs, setRuns] = useState<RunView[]>([]);
+export function DemoPage() {
+  const [runs, setRuns] = useState<DemoRunView[]>([]);
+  const pollingRunIds = useRef(new Set<string>());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [customKey, setCustomKey] = useState(`custom-${crypto.randomUUID()}`);
@@ -56,26 +27,29 @@ function DemoPage() {
 }`);
 
   useEffect(() => {
-    const activeRuns = runs.filter((run) => ['pending', 'processing', 'retry', 'ingesting'].includes(run.status));
+    const activeRuns = runs.filter(isRunActive);
     if (activeRuns.length === 0) return;
     const timer = window.setInterval(() => {
-      void Promise.all(activeRuns.map((run) => refreshRun(run.runId)));
+      for (const run of activeRuns) {
+        pollRunOnce(run.runId, pollingRunIds.current, () => refreshRun(run.runId));
+      }
     }, 900);
     return () => window.clearInterval(timer);
   }, [runs]);
 
-  async function trigger(scenario: DemoScenarioId) {
+  async function trigger(scenario: DemoScenarioId, replayRequest?: DemoScenarioRequest) {
     setBusy(true);
     setNotice('');
     try {
-      const body =
+      const body: DemoScenarioRequest = replayRequest ?? (
         scenario === 'custom'
           ? {
               scenario,
               idempotency_key: customKey,
-              payload: JSON.parse(customPayload) as unknown,
+              payload: JSON.parse(customPayload) as Extract<DemoScenarioRequest, { scenario: 'custom' }>['payload'],
             }
-          : { scenario };
+          : { scenario }
+      );
       const response = await fetch('/api/scenarios', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -83,7 +57,9 @@ function DemoPage() {
       });
       const result = (await response.json()) as StartResponse;
       if (result.runId === undefined) {
-        setNotice(result.error ?? 'The scenario could not be started.');
+        setNotice(result.error === 'idempotency_key_already_used'
+          ? 'This custom idempotency key was already used. Change the key in the custom event form to create another delivery.'
+          : result.error ?? 'The scenario could not be started.');
         return;
       }
       if (!result.accepted) {
@@ -96,6 +72,7 @@ function DemoPage() {
             status: 'rejected',
             reason: result.reason ?? 'Rejected by destination validation.',
             payload: body,
+            scenarioRequest: body,
             attempts: [],
             receiverAttempts: [],
           },
@@ -111,6 +88,7 @@ function DemoPage() {
           createdAt: new Date().toISOString(),
           status: 'pending',
           payload: body,
+          scenarioRequest: body,
           attempts: [],
           receiverAttempts: [],
         },
@@ -127,8 +105,8 @@ function DemoPage() {
     try {
       const response = await fetch(`/api/scenarios/${encodeURIComponent(runId)}`);
       if (!response.ok) return;
-      const updated = (await response.json()) as RunView;
-      setRuns((current) => current.map((run) => (run.runId === runId ? updated : run)));
+      const updated = (await response.json()) as DemoRunView;
+      setRuns((current) => current.map((run) => run.runId === runId ? mergeRunUpdate(run, updated) : run));
     } catch {
       setNotice('Connection paused. The demo may be waking from Free-tier sleep.');
     }
@@ -208,7 +186,9 @@ function DemoPage() {
         <div className="empty-state"><span className="empty-icon">⌁</span><strong>Your timeline is ready</strong><p>Choose a scenario above to watch the engine work.</p></div>
       ) : (
         <div className="event-list">
-          {runs.map((run) => <EventCard key={run.runId} run={run} />)}
+          {runs.map((run) => <EventCard key={run.runId} run={run} busy={busy} onReplay={(selectedRun) => {
+            if (!replayRun(selectedRun, trigger)) setNotice('Replay inputs are unavailable for this run.');
+          }} />)}
         </div>
       )}
 
@@ -226,44 +206,7 @@ function Kpi({ label, value, icon, tone = '' }: { label: string; value: string; 
   return <article className="kpi"><span className={`kpi-icon ${tone}`}>{icon}</span><div><strong>{value}</strong><span>{label}</span></div></article>;
 }
 
-function EventCard({ run }: { run: RunView }) {
-  const [expanded, setExpanded] = useState(false);
-  const latest = run.attempts.at(-1);
-  const latency = run.attempts.reduce((sum, attempt) => sum + (attempt.latencyMs ?? 0), 0);
-  return (
-    <article className="event-card">
-      <button className="event-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-        <span className={`status-dot status-${run.status}`} />
-        <span className="event-main"><strong>{run.scenario}</strong><small>{run.eventId ?? run.runId}</small></span>
-        <span className={`status-label status-label-${run.status}`}>{run.status}</span>
-        <span className="event-metric"><strong>{run.attempts.length}</strong><small>attempts</small></span>
-        <span className="event-metric"><strong>{latency} ms</strong><small>dispatch time</small></span>
-        <span className="event-time">{new Date(run.createdAt).toLocaleTimeString()}</span>
-        <span className="expand-mark">{expanded ? '−' : '+'}</span>
-      </button>
-      {run.status === 'retry' && run.nextRetryAt && <div className="retry-line">Next retry scheduled · {new Date(run.nextRetryAt).toLocaleTimeString()}</div>}
-      {run.reason && <div className="rejection-line">Rejected safely · {run.reason}</div>}
-      {latest?.error && <div className="rejection-line">Last attempt · {latest.error}</div>}
-      {expanded && (
-        <div className="event-details">
-          <div className="detail-block"><h4>Payload</h4><pre>{JSON.stringify(run.payload, null, 2)}</pre></div>
-          <div className="detail-block"><h4>Attempt history</h4>
-            {run.attempts.length === 0 && <p className="muted">No HTTP request was sent.</p>}
-            {run.attempts.map((attempt) => <div className="attempt-row" key={attempt.attemptNumber}><span>#{attempt.attemptNumber}</span><span>{new Date(attempt.attemptedAt).toLocaleTimeString()}</span><span>HTTP {attempt.statusCode ?? '—'}</span><span>{attempt.latencyMs ?? 0} ms</span><span>{attempt.outcome}</span></div>)}
-          </div>
-          <div className="detail-block"><h4>Signed receiver headers</h4>
-            {run.receiverAttempts.length === 0 && <p className="muted">No signed request reached the receiver.</p>}
-            {run.receiverAttempts.map((attempt) => <div className="signature-card" key={attempt.attemptNumber}>
-              <div><span>Attempt {attempt.attemptNumber} · {attempt.contentBytes} bytes</span><span>{new Date(attempt.receivedAt).toLocaleTimeString()}</span></div>
-              <code>x-webhook-timestamp: {attempt.timestamp}</code>
-              <code>x-webhook-event-id: {attempt.eventId}</code>
-              <code className="signature-value">x-webhook-signature: {attempt.signature}</code>
-            </div>)}
-          </div>
-        </div>
-      )}
-    </article>
-  );
+if (typeof document !== 'undefined') {
+  const root = document.getElementById('root');
+  if (root !== null) createRoot(root).render(<DemoPage />);
 }
-
-createRoot(document.getElementById('root')!).render(<DemoPage />);
