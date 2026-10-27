@@ -68,7 +68,7 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
             aria-controls={detailId}
             onClick={() => setExpanded((value) => !value)}
           >
-            <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+            <span aria-hidden="true">{expanded ? '➖' : '➕'}</span>
           </button>
         </div>
       </div>

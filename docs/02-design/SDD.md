@@ -633,7 +633,7 @@ Change only the delivery timeline card presentation in `examples/demo`. Preserve
 
 ### 14.2 Component Structure and Responsive Behavior
 
-Refactor the event card heading into three semantic groups: primary record identity (scenario/result, event ID or run ID, and status); delivery metrics (dispatch time, attempt count, and elapsed time); and actions (Replay and expansion). At small widths, CSS places these groups on three stacked rows in that order. At medium widths, use a wrapping/grid arrangement with reserved action space so Replay and expansion cannot cover the timestamp or other content. Long identifiers may truncate visually but remain available as text/accessibility content.
+Refactor the event card heading into three semantic groups: primary record identity (scenario/result, event ID or run ID, and status); delivery metrics (dispatch time, attempt count, and elapsed time); and actions (Replay and expansion). At small widths, CSS places these groups on three stacked rows in that order. At medium widths, identity occupies row one while metrics and actions share row two, with space reserved so Replay and expansion cannot cover the timestamp or other content. Long identifiers may truncate visually but remain available as text/accessibility content.
 
 Make expansion its own native button, separate from Replay, with the existing `aria-expanded` and `aria-controls` relationship. Use a distinct icon and color while retaining a visible keyboard focus indicator and text alternative for its purpose. Clicking either action must activate only that action.
 

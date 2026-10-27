@@ -87,10 +87,12 @@ describe('event card', () => {
     expect(expand?.getAttribute('aria-controls')).toBe('run-details-run-1');
     expect(expand?.getAttribute('aria-expanded')).toBe('false');
     expect(expand?.getAttribute('aria-label')).toBe('Expand details for success');
+    expect(expand?.textContent).toBe('➕');
 
     await act(async () => expand?.click());
     expect(expand?.getAttribute('aria-expanded')).toBe('true');
     expect(expand?.getAttribute('aria-label')).toBe('Collapse details for success');
+    expect(expand?.textContent).toBe('➖');
     expect(container.querySelector('.event-details')?.hasAttribute('hidden')).toBe(false);
     expect(onReplay).not.toHaveBeenCalled();
 
