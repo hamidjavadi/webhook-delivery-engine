@@ -100,3 +100,7 @@ Approved 2026-10-25; implementation is in progress after stakeholder authorizati
 ### Demo UI Enhancements — Issue #91
 
 Planning estimate: 15 engineering hours across five deliverables, with uncertainty around retaining exact signed request bytes and what retry schedule telemetry is available. Obtain approval of the server-side run/attempt-scoped signature verification contract, update SDD and tests, implement polling/replay, verifier, and presentation/accessibility work, then run demo-local checks. Outputs are a clearer timeline, honest attempt timing, copy tools, and grouped scenarios. No deployment or root package change is included.
+
+### Delivery Timeline Responsive Layout — Issue #101
+
+Planning estimate: 2 engineering hours for WBS 11.1. Rework the timeline card layout at medium and small widths so controls do not overlap content and the requested three-row grouping remains scannable. Add focused UI coverage, then run demo tests, lint, and production build. Scope is limited to demo presentation; no API, library, or deployment changes. Planning and design checkpoints were approved on 2026-10-27; implementation and local validation are recorded in WBS 11.1 and the test plan.

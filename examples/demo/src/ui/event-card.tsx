@@ -46,23 +46,31 @@ export function EventCard({ run, onReplay, busy = false, initiallyExpanded = fal
   return (
     <article className="event-card">
       <div className="event-heading">
-        <button
-          className="event-summary"
-          aria-expanded={expanded}
-          aria-controls={detailId}
-          onClick={() => setExpanded((value) => !value)}
-        >
+        <div className="event-identity">
           <span className={`status-dot status-${run.status}`} />
           <span className="event-main"><strong>{run.scenario}</strong><small>{run.eventId ?? run.runId}</small></span>
           <span className={`status-label status-label-${run.status}`}>{run.status}</span>
-          <span className="event-metric"><strong>{run.attempts.length}</strong><small>attempts</small></span>
-          <span className="event-metric"><strong>{hasLatency ? `${latency} ms` : '—'}</strong><small>dispatch time</small></span>
-          <span className="event-time">{new Date(run.createdAt).toLocaleTimeString()}</span>
-          <span className="expand-mark" aria-hidden="true">{expanded ? '−' : '+'}</span>
-        </button>
-        <button className="replay-button" type="button" disabled={busy} onClick={() => onReplay(run)}>
-          <span aria-hidden="true">⚡</span> Replay
-        </button>
+        </div>
+        <div className="event-metrics">
+          <div className="event-time"><small>dispatch time</small><strong>{new Date(run.createdAt).toLocaleTimeString()}</strong></div>
+          <div className="event-metric"><strong>{run.attempts.length}</strong><small>attempts</small></div>
+          <div className="event-metric"><strong>{hasLatency ? `${latency} ms` : '—'}</strong><small>time taken</small></div>
+        </div>
+        <div className="event-actions">
+          <button className="replay-button" type="button" disabled={busy} onClick={() => onReplay(run)}>
+            <span aria-hidden="true">⚡</span> Replay
+          </button>
+          <button
+            className="expand-button"
+            type="button"
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${run.scenario}`}
+            aria-expanded={expanded}
+            aria-controls={detailId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+          </button>
+        </div>
       </div>
       {run.status === 'retry' && run.nextRetryAt && <div className="retry-line">Next retry scheduled · {new Date(run.nextRetryAt).toLocaleTimeString()}</div>}
       {run.reason && <div className="rejection-line">Rejected safely · {run.reason}</div>}

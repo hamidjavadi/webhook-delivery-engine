@@ -57,6 +57,48 @@ describe('event card', () => {
     expect(html).toContain('observed inter-attempt interval 1250 ms');
   });
 
+  it('groups timeline identity, metrics, and independent accessible actions', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const onReplay = vi.fn();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root?.render(<EventCard run={sampleRun} onReplay={onReplay} />));
+
+    const identity = container.querySelector('.event-identity');
+    const metrics = container.querySelector('.event-metrics');
+    const actions = container.querySelector('.event-actions');
+    const expand = container.querySelector<HTMLButtonElement>('.expand-button');
+    const replay = container.querySelector<HTMLButtonElement>('.replay-button');
+
+    expect(identity).not.toBeNull();
+    expect(metrics).not.toBeNull();
+    expect(actions).not.toBeNull();
+    expect(expand).not.toBeNull();
+    expect(identity?.textContent).toContain('success');
+    expect(identity?.textContent).toContain('event-1');
+    expect(identity?.textContent).toContain('delivered');
+    expect(metrics?.textContent).toContain('dispatch time');
+    expect(metrics?.textContent).toContain('attempts');
+    expect(metrics?.textContent).toContain('time taken');
+    expect(metrics?.querySelector('.event-time strong')?.textContent).not.toBe('');
+    expect(actions?.contains(replay)).toBe(true);
+    expect(actions?.contains(expand)).toBe(true);
+    expect(expand?.getAttribute('aria-controls')).toBe('run-details-run-1');
+    expect(expand?.getAttribute('aria-expanded')).toBe('false');
+    expect(expand?.getAttribute('aria-label')).toBe('Expand details for success');
+
+    await act(async () => expand?.click());
+    expect(expand?.getAttribute('aria-expanded')).toBe('true');
+    expect(expand?.getAttribute('aria-label')).toBe('Collapse details for success');
+    expect(container.querySelector('.event-details')?.hasAttribute('hidden')).toBe(false);
+    expect(onReplay).not.toHaveBeenCalled();
+
+    await act(async () => replay?.click());
+    expect(onReplay).toHaveBeenCalledWith(sampleRun);
+    expect(expand?.getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('shows unavailable latency instead of reporting a missing measurement as zero', () => {
     const runWithoutLatency: DemoRunView = {
       ...sampleRun,

@@ -415,3 +415,25 @@ For issue #91, improve `examples/demo` so a visitor can replay a scenario, follo
 ### Constraints and Exclusions
 
 Keep application source changes within `examples/demo`. Use server-side verification because browser HMAC would expose the secret. Verification is strictly run/attempt scoped and checks captured receiver data. No engine public API change, dependency, new scenario, durable history, deployment, or generalized webhook debugger is included. Retry visualization is limited to timestamps and values the engine actually exposes.
+
+## Delivery Timeline Responsive Layout Addendum (Issue #101; Approved 2026-10-27)
+
+### Problem and Users
+
+At medium widths, the Replay control can cover timeline record content. At small widths, the record summary is crowded and difficult to scan. Demo visitors need the run identity and status, delivery metrics, and controls arranged clearly on narrow screens.
+
+### SMART Goal and Acceptance
+
+For issue #101, update the delivery timeline record layout in `examples/demo` so Replay no longer overlaps record content at medium widths and small-screen records show the requested three-row grouping. Verify layout structure, expand/replay interactions, and keyboard access with focused tests and the demo build/lint checks.
+
+### Requirements and Constraints
+
+- Preserve result/scenario, event or run ID, status, dispatch time, attempt count, and elapsed-time information.
+- Small-screen row one contains result, ID, and status; row two contains dispatch time, attempts, and elapsed time; row three contains Replay and expand controls.
+- Keep Replay and expansion as separate accessible buttons. Style expansion like Replay with a distinct icon and color.
+- Prevent overlap at medium widths and keep labels/content usable at narrow widths.
+- Limit application changes to the demo UI/CSS and associated tests. Do not change API behavior, telemetry, library source/API, or deployment configuration.
+
+### Dependencies and DoD
+
+Depends on completed WBS 10.5 and the existing React/CSS implementation. Done when focused responsive/interaction tests, demo tests, lint, and production build pass and planning/design/test records reflect the delivered behavior.

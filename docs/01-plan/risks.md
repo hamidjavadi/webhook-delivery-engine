@@ -4,7 +4,7 @@
 **Version:** 1.0.0  
 **Status:** Approved / Baseline  
 **Owner:** Product Engineer (Hamid Javadi)
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-27
 **Reference Docs:** `PRD.md`, `scope.md`, `WBS.md`, `roadmap.md`, `01-project-planning.md`
 
 ---
@@ -55,6 +55,12 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | **R-16** | Verification leaks the secret or permits cross-run checks | 2 | 5 | 10 | High | Demo Security Owner | Response includes key material or caller selects unrelated body/attempt | Use server-held key, captured bytes, strict run/attempt association, boolean-only result; test unknown IDs and malformed state | Disable verifier route and retain passive signature display until fixed |
 | **R-17** | Polling falsely declares completion or remains stale | 3 | 3 | 9 | Medium | Demo UI Owner | Transient failures, poll races, or unseen retry transition | Merge by run ID, preserve last active state on transient errors, test transitions and terminal cutoff | Surface paused connection state and permit refresh |
 | **R-18** | Retry visualization overstates backoff/jitter | 3 | 3 | 9 | Medium | Demo UI Owner | UI derives a precise delay unavailable in engine telemetry | Separate measured latency from observed scheduling; show only available timestamps | Remove unsupported estimates and show schedule timestamps only |
+
+### Delivery Timeline Responsive Layout Risks (Issue #101)
+
+| ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| **R-19** | Responsive layout hides or mislabels timeline fields or controls | 2 | 2 | 4 | Low | Demo UI Owner | Narrow or medium viewport clips values, overlaps buttons, or makes expansion inaccessible | Test representative viewport breakpoints, long identifiers, keyboard focus, and independent control activation | Restore the prior card layout at affected widths and refine CSS while retaining the requested grouping |
 
 ## 3. Contingency & Fallback Protocols
 
