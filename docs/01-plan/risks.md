@@ -68,6 +68,14 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
 | **R-20** | Demo displays a stale package version | 1 | 2 | 2 | Low | Demo UI Owner | UI version is copied into a separate constant | Import the canonical root package metadata and test it against the rendered page | Correct the metadata source and rebuild the demo |
 
+### v1.0.0 Approved Security Exception — 2026-10-27
+
+| ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| **R-21** | Recursive ingestion payload validation can consume excessive memory on oversized arrays (GHSA-mrhx-c7xc-m3w5; `zod@3.25.76`) | 3 | 5 | 15 | High; exception approved for v1.0.0 | Project Engineering Owner | An application passes a very large or adversarial nested array to `handleIngestion` | Host applications must bound payload size and validate untrusted input before calling the engine; do not expose ingestion without host-owned access controls | Remove the exception before the next release by upgrading to a patched Zod version and adding an explicit, documented bound to recursive array payloads with regression tests |
+
+The stakeholder explicitly approved publishing v1.0.0 with this finding on 2026-10-27. No technical mitigation for the unbounded recursive array schema is included in v1.0.0. This exception applies only to this release and must be resolved before any subsequent package release.
+
 ## 3. Contingency & Fallback Protocols
 
 ### 3.1. Concurrency Breakdown (R-01)

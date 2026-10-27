@@ -67,6 +67,20 @@ For a development/release-candidate package build:
    and release approval. A consuming host configures persistent storage and
    secrets, then awaits engine start/stop as part of its own lifecycle.
 
+### v1.0.0 Dependency Audit Exception — Approved 2026-10-27
+
+The stakeholder approved publishing v1.0.0 despite `pnpm audit --prod`
+reporting high-severity GHSA-mrhx-c7xc-m3w5 for resolved `zod@3.25.76`.
+The recursive ingestion payload schema accepts unbounded arrays, so adversarial
+oversized collections may exhaust memory during validation. This is a release
+exception, not a clean audit result or an implementation fix. Host applications
+must bound payload size and validate untrusted input before passing it to the
+engine, and must enforce their own access controls around ingestion. The
+exception expires for release purposes after v1.0.0; resolve the finding and
+require a clean audit before any subsequent package release. The approval and
+technical exit criteria are recorded in `docs/04-testing/test-plan.md` and
+`docs/01-plan/risks.md`.
+
 For storage recovery changes, verify behavior with
 `pnpm exec vitest run src/storage/sqlite.adapter.test.ts`. For WBS 3.2 URL
 validation, verify the deterministic suite with

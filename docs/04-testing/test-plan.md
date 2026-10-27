@@ -930,6 +930,15 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Limitations:** Responsive CSS defines medium (≤840px) and small (≤580px) layouts. No real-browser viewport screenshot or manual visual matrix was run; Vitest verifies DOM structure and interactions, not rendered geometry. No demo API, library source/API, or deployment configuration changed.
 - **Go/No-Go:** Go for implementation review. Browser viewport visual confirmation remains a review limitation; no test, lint, typecheck, or build failures were observed.
 
+## v1.0.0 Release Security Exception — 2026-10-27
+
+- **Control:** `pnpm audit --prod` reported one high-severity finding, GHSA-mrhx-c7xc-m3w5, for resolved `zod@3.25.76` (the package declares `^3.24.2`).
+- **Exposure:** `src/features/ingestion/ingestion.schema.ts` recursively validates payload arrays with `z.array(jsonValueSchema)` and does not impose an array-length bound. The audit finding concerns memory exhaustion while validating oversized collections.
+- **Decision:** The stakeholder explicitly approved the v1.0.0 release exception on 2026-10-27. This is a documented exception to the failed dependency-audit gate; it is not a clean audit result or a technical fix.
+- **Interim guidance:** Host applications must bound request/payload size and validate untrusted input before passing it to the engine, and must enforce their own access controls around ingestion.
+- **Exit criterion:** Before any subsequent package release, update to a patched Zod version, define and document an explicit maximum for recursive payload arrays, add regression coverage, and require a clean production dependency audit.
+- **Go/No-Go:** The release may proceed under this narrow, stakeholder-approved exception only. All other recorded release checks must pass.
+
 ## WBS 12.1 Demo Version Display Validation — 2026-10-27
 
 - **Scope:** Root package version displayed in the demo header, with the value sourced from `package.json`.
