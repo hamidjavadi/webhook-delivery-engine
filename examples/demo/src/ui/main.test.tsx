@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import packageMetadata from '../../../../package.json';
 import { DemoPage } from './main.js';
 
 let root: Root | undefined;
@@ -44,6 +45,8 @@ describe('demo page structure', () => {
   it('renders the scenario trigger, empty timeline, and temporary-state disclosure', () => {
     const html = renderToStaticMarkup(<DemoPage />);
 
+    expect(html).toContain(`v${packageMetadata.version}`);
+    expect(html.indexOf(`v${packageMetadata.version}`)).toBeLessThan(html.indexOf('LIVE ENGINE PLAYGROUND'));
     expect(html).toContain('Trigger a scenario');
     expect(html).toContain('Delivery timeline');
     expect(html).toContain('Your timeline is ready');

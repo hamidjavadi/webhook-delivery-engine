@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import packageMetadata from '../../../../package.json';
 import { DEMO_SCENARIOS, DEMO_SCENARIO_GROUPS, type DemoScenarioId, type DemoScenarioRequest } from '../scenarios.js';
 import { EventCard } from './event-card.js';
 import { isRunActive, mergeRunUpdate, pollRunOnce, replayRun, type DemoRunView } from './run-state.js';
@@ -124,7 +125,7 @@ export function DemoPage() {
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Webhook Delivery Engine demo home">
           <span className="brand-mark">W</span>
-          <span>delivery engine</span>
+          <span>delivery engine v{packageMetadata.version}</span>
         </a>
         <a className="source-link" href="https://github.com/hamidjavadi/webhook-delivery-engine">
           View source <span aria-hidden="true">↗</span>

@@ -437,3 +437,7 @@ For issue #101, update the delivery timeline record layout in `examples/demo` so
 ### Dependencies and DoD
 
 Depends on completed WBS 10.5 and the existing React/CSS implementation. Done when focused responsive/interaction tests, demo tests, lint, and production build pass and planning/design/test records reflect the delivered behavior.
+
+## Demo Version Display Addendum (WBS 12.1)
+
+The demo's top brand area displays the current root package version. The displayed value is read from the root `package.json`, avoiding a second maintained version string. Acceptance is verified by a page-rendering test that checks the version appears before the hero section; demo tests, lint, and production build must pass. No library behavior or public API changes are included.

@@ -152,3 +152,9 @@
 | Task ID | Task Description | Dependencies | Owner | Est. | Acceptance Criteria | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **11.1** | Improve delivery timeline record layout on medium and small screens | 10.5 | Full-Stack Eng | 2h | At medium widths, identity occupies row one and metrics plus Replay/expand controls share row two without overlap; on small screens each record uses three rows: result, ID, and status; dispatch time, attempts, and time taken; then Replay and expand controls. Expand is a separate button styled like Replay with a distinct icon and color; record content and interactions remain accessible. | **Done; PRs #102 and #103 merged.** 45 demo tests passed; coverage was 83.70% statements/lines, 78.47% branches, and 86.36% functions; lint/build passed. Browser viewport rendering was not separately exercised; medium layout and button styling were refined and accepted by the user |
+
+### WBS 12.0: Demo Version Display
+
+| Task ID | Task Description | Dependencies | Owner | Est. | Acceptance Criteria | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **12.1** | Display the package version in the demo header | 9.3 | Full-Stack Eng | 0.5h | The top brand area displays the current root package version, sourced from `package.json`; a page-rendering test verifies the displayed value appears before the hero section; demo tests, lint, and production build pass. | Done locally; 45 demo tests pass, lint and build pass; awaiting review |

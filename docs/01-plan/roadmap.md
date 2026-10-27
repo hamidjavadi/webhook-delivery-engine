@@ -104,3 +104,7 @@ Planning estimate: 15 engineering hours across five deliverables, with uncertain
 ### Delivery Timeline Responsive Layout — Issue #101
 
 Planning estimate: 2 engineering hours for WBS 11.1. Rework the timeline card layout at medium and small widths so controls do not overlap content and the requested three-row grouping remains scannable. Add focused UI coverage, then run demo tests, lint, and production build. Scope is limited to demo presentation; no API, library, or deployment changes. Planning and design checkpoints were approved on 2026-10-27; implementation and local validation are recorded in WBS 11.1 and the test plan.
+
+### Demo Version Display — WBS 12.1
+
+Display the root package version in the demo's top brand area, sourcing it from `package.json`. This is a small demo presentation update with no API, package behavior, or deployment changes. Implementation and local validation are recorded in WBS 12.1 and the test plan.
