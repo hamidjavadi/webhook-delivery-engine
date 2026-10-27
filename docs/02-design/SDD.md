@@ -640,3 +640,7 @@ Make expansion its own native button, separate from Replay, with the existing `a
 ### 14.3 Data Flow and Testability
 
 The card continues to receive the same `DemoRunView`; no API or state changes are needed. UI tests verify the three semantic groups, preserved values, distinct Replay/expand controls, accessible expansion state, and independent interactions. Responsive styling is reviewed at the configured medium/small breakpoints with long IDs and timestamps. No new dependency or ADR is required because this is a local presentation change.
+
+## 15. Demo Version Display (WBS 12.1)
+
+The demo header renders the application version beside its brand. The client imports the canonical root `package.json` metadata and displays its `version` field, avoiding a separate version constant. A page-rendering test verifies the value appears in the header before the hero content. This presentation-only change introduces no runtime API, package, or deployment behavior and requires no ADR.

@@ -164,3 +164,13 @@ Changes to telemetry/API behavior, event data, retry calculations, library sourc
 2. At small widths records present the requested three row groups without clipping or messy control collisions.
 3. Expand is a separate accessible button styled consistently with Replay, with a distinct icon and color; both controls work independently.
 4. Existing record values and status/expansion behavior are preserved; focused tests, demo tests, lint, and production build pass.
+
+## 8. Demo Version Display (WBS 12.1; Approved Scope)
+
+Display the root package's current version in the demo's top brand area. Read the value from the root `package.json` so the UI does not maintain a duplicate version string. This is a demo presentation change only; package behavior, APIs, deployment, and versioning policy are unchanged.
+
+### Acceptance Criteria
+
+1. The top brand area shows `v` followed by the current root package version.
+2. A page-rendering test verifies the package version is present before the hero section.
+3. Demo tests, lint, and production build pass.

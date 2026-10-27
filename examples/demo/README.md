@@ -7,6 +7,10 @@ configuration are local to this directory. It uses the actual embedded engine, a
 HTTPS receiver, and an in-process SQLite database. It does not publish the
 package or add routes to the library.
 
+## Live demo
+
+Try the hosted demo at <https://webhook-delivery-engine-3tu0.onrender.com/>.
+
 ## What it demonstrates
 
 - Immediate delivery, a retry that later succeeds, terminal HTTP 401, and

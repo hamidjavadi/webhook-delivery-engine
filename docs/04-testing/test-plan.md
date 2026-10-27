@@ -929,3 +929,12 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Behavior covered:** Identity, ID, and status remain grouped; dispatch time, attempts, and time taken are grouped; Replay and expansion are distinct controls; expansion retains its accessible state relationship; Replay does not toggle expansion.
 - **Limitations:** Responsive CSS defines medium (≤840px) and small (≤580px) layouts. No real-browser viewport screenshot or manual visual matrix was run; Vitest verifies DOM structure and interactions, not rendered geometry. No demo API, library source/API, or deployment configuration changed.
 - **Go/No-Go:** Go for implementation review. Browser viewport visual confirmation remains a review limitation; no test, lint, typecheck, or build failures were observed.
+
+## WBS 12.1 Demo Version Display Validation — 2026-10-27
+
+- **Scope:** Root package version displayed in the demo header, with the value sourced from `package.json`.
+- **Red/Green:** The page-rendering test first failed because the rendered page had no version label. After implementation, it passed and verified the package version appears before the hero section.
+- **Validation:** `pnpm exec vitest run src/ui/main.test.tsx` passed (4 tests); `pnpm test` passed (9 files, 45 tests); `pnpm lint` passed; `pnpm build` passed, including server/client TypeScript checks and the Vite production build.
+- **Environment:** Node.js v24.16.0; Vitest 3.2.7; standalone `examples/demo` project.
+- **Limitations:** No live deployment or separate browser viewport inspection was requested or performed. No demo API, engine source, or public API changed.
+- **Go/No-Go:** Go for local implementation review; all executed test, lint, and build checks passed.

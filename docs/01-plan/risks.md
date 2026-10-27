@@ -62,6 +62,12 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
 | **R-19** | Responsive layout hides or mislabels timeline fields or controls | 2 | 2 | 4 | Low | Demo UI Owner | Narrow or medium viewport clips values, overlaps buttons, or makes expansion inaccessible | Test representative viewport breakpoints, long identifiers, keyboard focus, and independent control activation | Restore the prior card layout at affected widths and refine CSS while retaining the requested grouping |
 
+### Demo Version Display Risks (WBS 12.1)
+
+| ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| **R-20** | Demo displays a stale package version | 1 | 2 | 2 | Low | Demo UI Owner | UI version is copied into a separate constant | Import the canonical root package metadata and test it against the rendered page | Correct the metadata source and rebuild the demo |
+
 ## 3. Contingency & Fallback Protocols
 
 ### 3.1. Concurrency Breakdown (R-01)
