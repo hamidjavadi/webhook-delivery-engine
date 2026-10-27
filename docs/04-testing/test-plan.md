@@ -902,3 +902,12 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Scope:** No root library source or public API changes. No live Render deployment or public receiver scenario was run; those remain deployment-stage checks under the hosted demo test plan.
 - **Failures/open bugs:** No test, lint, typecheck, or build failures. Demo branch coverage remains below 80% at 78.16%; it is visible in this record and no all-dimensions 80% claim is made. No release blocker was found in the focused QA scope.
 - **Go/No-Go:** Go for WBS 10.5 implementation and local QA review. Hosted deployment checks remain subject to the separate deployment approval gate.
+
+### WBS 9.5 Hosted Demo QA Record — 2026-10-27
+
+- **Package and consumer smoke:** The 2026-10-26 standalone QA record above documents frozen root/demo installs, root package build/pack, import through the packed package, and demo production build.
+- **Automated QA:** The 2026-10-27 WBS 10.5 record above documents 44 passing demo tests, 401 passing root regression tests, passing demo lint/build, and coverage results. Demo coverage was 83.53% statements/lines, 78.16% branches, and 84.09% functions; root coverage was 98.54% statements/lines, 95.53% branches, and 99.09% functions.
+- **Live service and behavior:** On 2026-10-27, the stakeholder confirmed the Render service is live and working, and confirmed the demo APIs and remaining behavior work. This is stakeholder-reported verification; no live requests, logs, or per-scenario results were independently captured in this QA pass.
+- **Scope:** No library API/source changes are part of this QA record. Historical local readiness and SIGTERM results are recorded in the 2026-10-26 standalone QA section above.
+- **Failures and limitations:** No new tests or live checks were run for this record. The exact live scenario-by-scenario outputs and current deployment logs were not provided; this entry records the stakeholder's overall confirmation without claiming fresh independent execution.
+- **Go/No-Go:** Go for WBS 9.5 closeout based on the recorded local QA and stakeholder confirmation that the live demo works. Follow-up deployment diagnostics are not indicated by the reported status.
