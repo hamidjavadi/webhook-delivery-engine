@@ -624,3 +624,19 @@ The HMAC verifier lives in `src/signature.ts`, separate from HTTP routing so exa
 ### 13.7 Decision References and Trade-offs
 
 Server-side verification is recorded in [ADR-0007 — Demo Signature Verification Boundary](adr/ADR-0007-demo-signature-verification-boundary.md). Raw body retention is necessary because JSON reserialization can change signed bytes; bounded in-memory retention increases memory use but avoids secret exposure and durable sensitive storage. Replay with the same idempotency key may conflict and the UI must communicate that result.
+
+## 14. Delivery Timeline Responsive Layout (Issue #101; Design Approved 2026-10-27)
+
+### 14.1 Goals and Boundaries
+
+Change only the delivery timeline card presentation in `examples/demo`. Preserve all current run data and actions; do not change the demo API, telemetry model, engine package, or deployment configuration.
+
+### 14.2 Component Structure and Responsive Behavior
+
+Refactor the event card heading into three semantic groups: primary record identity (scenario/result, event ID or run ID, and status); delivery metrics (dispatch time, attempt count, and elapsed time); and actions (Replay and expansion). At small widths, CSS places these groups on three stacked rows in that order. At medium widths, use a wrapping/grid arrangement with reserved action space so Replay and expansion cannot cover the timestamp or other content. Long identifiers may truncate visually but remain available as text/accessibility content.
+
+Make expansion its own native button, separate from Replay, with the existing `aria-expanded` and `aria-controls` relationship. Use a distinct icon and color while retaining a visible keyboard focus indicator and text alternative for its purpose. Clicking either action must activate only that action.
+
+### 14.3 Data Flow and Testability
+
+The card continues to receive the same `DemoRunView`; no API or state changes are needed. UI tests verify the three semantic groups, preserved values, distinct Replay/expand controls, accessible expansion state, and independent interactions. Responsive styling is reviewed at the configured medium/small breakpoints with long IDs and timestamps. No new dependency or ADR is required because this is a local presentation change.

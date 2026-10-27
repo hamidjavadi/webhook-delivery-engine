@@ -911,3 +911,21 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Scope:** No library API/source changes are part of this QA record. Historical local readiness and SIGTERM results are recorded in the 2026-10-26 standalone QA section above.
 - **Failures and limitations:** No new tests or live checks were run for this record. The exact live scenario-by-scenario outputs and current deployment logs were not provided; this entry records the stakeholder's overall confirmation without claiming fresh independent execution.
 - **Go/No-Go:** Go for WBS 9.5 closeout based on the recorded local QA and stakeholder confirmation that the live demo works. Follow-up deployment diagnostics are not indicated by the reported status.
+
+## Delivery Timeline Responsive Layout Test Plan (Issue #101; Implementation)
+
+- **Scope:** WBS 11.1; delivery timeline record markup, responsive CSS, and focused UI tests only.
+- **Approach:** At medium and small viewport breakpoints, verify fields appear in the required row groups and do not overlap or clip. Use long IDs/timestamps to exercise constrained width. Verify Replay and expand are distinct keyboard-operable buttons, expansion state remains announced, and each action works without triggering the other.
+- **Environment/data:** Demo Vitest UI environment with synthetic run records and representative long values; no secrets or live service data.
+- **Entry/exit:** Entry after planning/design checkpoint approval. Exit after focused UI and demo regression tests, lint, and production build pass; report actual results and remaining limitations.
+- **Coverage/reporting:** Record focused test counts and commands, viewport/breakpoint cases, failures, and Go/No-Go in a WBS 11.1 QA addendum. No production deployment is in scope.
+
+### WBS 11.1 Local Validation Record — 2026-10-27
+
+- **Environment:** Node.js v24.16.0; Vitest 3.2.7; standalone `examples/demo` project.
+- **Red/Green:** The focused event-card regression initially failed because the identity/metrics/action groups and separate expand button did not exist. After the markup and CSS update, `pnpm exec vitest run src/ui/event-card.test.tsx` passed (8 tests).
+- **Demo suite and coverage:** `pnpm test` and `pnpm exec vitest run --coverage` passed (9 files, 45 tests). Coverage: 83.70% statements/lines, 78.47% branches, and 86.36% functions. `src/ui/event-card.tsx` coverage is 100% statements/lines/functions and 91.93% branches.
+- **Quality checks:** `pnpm lint` and `pnpm build` passed; build includes server/client TypeScript checks and Vite production output.
+- **Behavior covered:** Identity, ID, and status remain grouped; dispatch time, attempts, and time taken are grouped; Replay and expansion are distinct controls; expansion retains its accessible state relationship; Replay does not toggle expansion.
+- **Limitations:** Responsive CSS defines medium (≤840px) and small (≤580px) layouts. No real-browser viewport screenshot or manual visual matrix was run; Vitest verifies DOM structure and interactions, not rendered geometry. No demo API, library source/API, or deployment configuration changed.
+- **Go/No-Go:** Go for implementation review. Browser viewport visual confirmation remains a review limitation; no test, lint, typecheck, or build failures were observed.

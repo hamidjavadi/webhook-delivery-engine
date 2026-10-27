@@ -144,3 +144,23 @@ Exposing HMAC secrets or browser-side verification; library API/retry algorithm 
 5. Copy actions transfer exact displayed values and announce success/failure accessibly.
 6. Grouped controls are keyboard accessible and usable on narrow viewports.
 7. Demo tests, typecheck, lint, and production build pass with no root library source/public API changes.
+
+## 7. Delivery Timeline Responsive Layout Scope (Issue #101; Approved 2026-10-27)
+
+### In Scope
+
+- Reflow delivery timeline records to prevent the Replay control from covering record content at medium widths.
+- At small widths, place result/ID/status in row one, dispatch time/attempts/elapsed time in row two, and separate Replay/expand buttons in row three.
+- Give the expand button a distinct icon and color while retaining accessible naming, keyboard operation, and expansion state.
+- Add focused UI tests for content grouping, responsive structure, and independent button interactions.
+
+### Out of Scope
+
+Changes to telemetry/API behavior, event data, retry calculations, library source/public API, dependencies, deployment, or unrelated page layout.
+
+### Acceptance Criteria
+
+1. At medium widths Replay does not overlap the timestamp, expand control, or other record content.
+2. At small widths records present the requested three row groups without clipping or messy control collisions.
+3. Expand is a separate accessible button styled consistently with Replay, with a distinct icon and color; both controls work independently.
+4. Existing record values and status/expansion behavior are preserved; focused tests, demo tests, lint, and production build pass.
