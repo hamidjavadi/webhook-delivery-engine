@@ -915,7 +915,7 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 ## Delivery Timeline Responsive Layout Test Plan (Issue #101; Implementation)
 
 - **Scope:** WBS 11.1; delivery timeline record markup, responsive CSS, and focused UI tests only.
-- **Approach:** At medium and small viewport breakpoints, verify fields appear in the required row groups and do not overlap or clip. Use long IDs/timestamps to exercise constrained width. Verify Replay and expand are distinct keyboard-operable buttons, expansion state remains announced, and each action works without triggering the other.
+- **Approach:** At medium and small viewport breakpoints, verify fields appear in the required row groups and do not overlap or clip. Medium layout places identity in row one and metrics with Replay/expand controls in row two; small layout uses three rows. Use long IDs/timestamps to exercise constrained width. Verify Replay and expand are distinct keyboard-operable buttons, expansion state remains announced, and each action works without triggering the other.
 - **Environment/data:** Demo Vitest UI environment with synthetic run records and representative long values; no secrets or live service data.
 - **Entry/exit:** Entry after planning/design checkpoint approval. Exit after focused UI and demo regression tests, lint, and production build pass; report actual results and remaining limitations.
 - **Coverage/reporting:** Record focused test counts and commands, viewport/breakpoint cases, failures, and Go/No-Go in a WBS 11.1 QA addendum. No production deployment is in scope.
