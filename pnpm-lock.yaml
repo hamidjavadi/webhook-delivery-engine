@@ -1297,7 +1297,7 @@ packages:
     engines: {node: '>=12.0.0'}
 
   tinypool@1.1.1:
-    resolution: {integrity: sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg==}
+    resolution: {integrity: sha512-TGH7vXtlOeL0V3weOh/yiaTE4pcajV7xgoNEV1d2MZIQQJo0xQqDPx4ZdnXhQSjR/clIot+G/SyRWtCBKJn9UA==, tarball: https://patch.socket.dev/patch/npm/tinypool/1.1.1/c7c53153-2fa5-434b-a3d5-c2166c3b9252/8f6cf5e5-3399-4a94-ad9c-eeba9307fb81/tinypool-1.1.1.tgz}
     engines: {node: ^18.0.0 || >=20.0.0}
 
   tinyrainbow@2.0.0:
