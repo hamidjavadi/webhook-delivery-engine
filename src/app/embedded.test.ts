@@ -129,6 +129,20 @@ describe('embedded engine structured logging', () => {
     expect(JSON.stringify(ingestionRecord)).not.toContain('private-payload-value');
   });
 
+  it('does not log rejected ingestion as accepted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'webhook-engine-ingestion-rejected-'));
+    directories.push(directory);
+    const engine = makeEngine(join(directory, 'engine.sqlite'));
+    await engine.start();
+    const result = await engine.enqueue({ idempotency_key: '', payload: {} });
+    await engine.stop();
+
+    expect(result.statusCode).toBe(400);
+    expect(logger.info.mock.calls.some(([fields]) => fields.event === 'ingestion.accepted')).toBe(
+      false,
+    );
+  });
+
   it('logs lifecycle and delivery records without serializing event data', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'webhook-engine-logging-'));
     directories.push(directory);
@@ -159,11 +173,15 @@ describe('embedded engine structured logging', () => {
     expect(records).not.toContain('hmac-secret-value');
   });
 
-  it('logs scheduler failures by safe error type without raw messages', async () => {
+  it.each([
+    { error: new TypeError('private payload and credential details'), errorType: 'TypeError' },
+    { error: new RangeError('private payload and credential details'), errorType: 'RangeError' },
+    { error: new SyntaxError('private payload and credential details'), errorType: 'SyntaxError' },
+    { error: new Error('private payload and credential details'), errorType: 'Error' },
+    { error: 'private payload and credential details', errorType: 'string' },
+  ])('logs scheduler failures as $errorType without raw messages', async ({ error, errorType }) => {
     const directory = await mkdtemp(join(tmpdir(), 'webhook-engine-logging-error-'));
     directories.push(directory);
-    const error = new Error('private payload and credential details');
-    error.name = 'private-name-with-sensitive-data';
     vi.spyOn(SqliteDatabaseAdapter.prototype, 'recoverStaleLeases').mockRejectedValue(error);
     const engine = makeEngine(join(directory, 'engine.sqlite'));
     await engine.start();
@@ -171,7 +189,7 @@ describe('embedded engine structured logging', () => {
     await engine.stop();
 
     expect(logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'scheduler.poll.failed', errorType: 'Error' }),
+      expect.objectContaining({ event: 'scheduler.poll.failed', errorType }),
       expect.any(String),
     );
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain(

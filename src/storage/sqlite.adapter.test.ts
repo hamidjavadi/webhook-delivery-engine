@@ -1003,6 +1003,36 @@ describe('SqliteDatabaseAdapter', () => {
     await expect(adapter.findEventById('event-1', 'client-1')).rejects.toThrow(/event status/i);
   });
 
+  it('rejects persisted integers outside the safe JavaScript range', async () => {
+    await adapter.upsertEvent(createEvent());
+    const connection = new Database(databasePath);
+    connection
+      .prepare('UPDATE webhook_events SET attempt_count = ? WHERE id = ?')
+      .run(Number.MAX_SAFE_INTEGER + 1, 'event-1');
+    connection.close();
+
+    await expect(adapter.findEventById('event-1', 'client-1')).rejects.toThrow(
+      /invalid "attempt_count" value/i,
+    );
+  });
+
+  it('rejects function and non-plain objects in persisted JSON values', async () => {
+    await expect(
+      adapter.upsertEvent(
+        createEvent({ payload: (() => 'not JSON') as unknown as WebhookEvent['payload'] }),
+      ),
+    ).rejects.toThrow(/JSON-compatible/i);
+    await expect(
+      adapter.upsertEvent(
+        createEvent({
+          payload: new (class NonPlainPayload {
+            readonly value = 'not a plain JSON object';
+          })() as unknown as WebhookEvent['payload'],
+        }),
+      ),
+    ).rejects.toThrow(/JSON-compatible/i);
+  });
+
   it('rejects malformed persisted JSON and non-object metadata or headers', async () => {
     await adapter.upsertEvent(createEvent({ id: 'bad-payload', idempotencyKey: 'bad-payload' }));
     await adapter.upsertEvent(createEvent({ id: 'bad-metadata', idempotencyKey: 'bad-metadata' }));
