@@ -441,3 +441,19 @@ Depends on completed WBS 10.5 and the existing React/CSS implementation. Done wh
 ## Demo Version Display Addendum (WBS 12.1)
 
 The demo's top brand area displays the current root package version. The displayed value is read from the root `package.json`, avoiding a second maintained version string. Acceptance is verified by a page-rendering test that checks the version appears before the hero section; demo tests, lint, and production build must pass. No library behavior or public API changes are included.
+
+## WBS 13.3 Dependency Hardening Addendum (Approved 2026-10-28)
+
+For WBS 13.3, remove the Socket-flagged `real-require@0.2.0` package from the
+root dependency tree without adding a replacement external dependency. The
+approved approach replaces the private Pino-backed logger with an internal
+Node.js stream-based JSON logger while preserving the existing engine-facing
+logging methods, levels, destination support, output fields, and sensitive
+field removal. The root public API and logging configuration must remain
+compatible. This dependency-remediation scope is limited to WBS 13.3 and is
+governed by accepted ADR-0008.
+
+Acceptance requires focused behavior tests, full required quality checks, and
+evidence that `real-require@0.2.0` is absent from the root and demo manifests
+and lockfiles. WBS 13.2 remains deferred to the next release check by stakeholder
+direction dated 2026-10-28.

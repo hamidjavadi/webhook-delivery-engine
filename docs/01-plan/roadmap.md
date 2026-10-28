@@ -108,3 +108,16 @@ Planning estimate: 2 engineering hours for WBS 11.1. Rework the timeline card la
 ### Demo Version Display — WBS 12.1
 
 Display the root package version in the demo's top brand area, sourcing it from `package.json`. This is a small demo presentation update with no API, package behavior, or deployment changes. Implementation and local validation are recorded in WBS 12.1 and the test plan.
+
+### Socket Dependency Remediation — WBS 13.0
+
+WBS 13.1 is merged. By stakeholder direction dated 2026-10-28, defer WBS 13.2
+to the next release check and proceed with WBS 13.3 first. The current WBS 13.3
+finding is `real-require@0.2.0`, pulled transitively by Pino and thread-stream.
+Approved design is to remove the private Pino-backed logger and implement its
+existing behavior with a small Node.js stream-based utility, adding no external
+dependency. ADR-0008 was approved on 2026-10-28. Test-first implementation,
+manifest/lockfile verification, root quality checks, and packed-demo validation
+are complete locally; see the test plan. WBS 13.4 and 13.5 remain gated by WBS 13.2
+unless the stakeholder changes their order. Do not release between work
+packages; the single phase-end release remains the plan.

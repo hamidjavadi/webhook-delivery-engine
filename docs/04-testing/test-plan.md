@@ -948,6 +948,58 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Limitations:** No live deployment or separate browser viewport inspection was requested or performed. No demo API, engine source, or public API changed.
 - **Go/No-Go:** Go for local implementation review; all executed test, lint, and build checks passed.
 
+## WBS 13.3 QA Plan — `real-require@0.2.0`
+
+- **Status:** ADR-0008 approved 2026-10-28; local implementation and QA are
+  complete. The TDD red run failed as expected because
+  `src/utils/json-logger.ts` did not exist; the focused green run then passed 7
+  tests across the new utility and existing logger suites.
+- **Environment:** Node.js 24+, pnpm 10.4.1, Vitest, existing root package
+  scripts and lockfile.
+- **Scope:** Replace the private Pino-backed logger as needed to remove
+  `real-require@0.2.0` without adding an external dependency or changing public
+  engine behavior.
+- **Test-first approach:** Add logger tests and observe them fail before
+  implementation. Cover explicit/environment/default level resolution,
+  supported-level filtering including `silent`, JSON output fields, optional
+  writable destination, and root/nested sensitive-field removal. Retain an
+  Arrange–Act–Assert structure and deterministic in-memory streams.
+- **Dependency verification:** Confirm `real-require` is absent from both the
+  root and standalone demo manifests/lockfiles and inspect the resolved
+  dependency trees for remaining copies.
+- **Entry criteria:** ADR-0008 accepted; baseline branch and target finding
+  recorded; dependency change limited to WBS 13.3. Met on 2026-10-28.
+- **Exit criteria:** Focused logger tests, full root suite with coverage,
+  typecheck, lint, and build pass; overall coverage is at least 80% and critical
+  paths remain at least 95%; test results and any limitations are recorded.
+
+### WBS 13.3 Local Validation Record — 2026-10-28
+
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1; Vitest 3.2.7.
+- **TDD:** The first focused run failed because the planned logger utility was
+  absent. After implementation, the focused logger suites passed (2 files, 7
+  tests); the full root suite passed (21 files, 406 tests).
+- **Coverage:** Root coverage was 98.57% statements/lines, 95.75% branches,
+  and 99.17% functions. `src/utils/json-logger.ts` measured 100% in all
+  dimensions; `src/shared/logger.ts` also measured 100% in all dimensions.
+- **Root checks:** `pnpm exec tsc --noEmit --project tsconfig.json`,
+  `pnpm lint`, `pnpm build`, and Prettier checks passed.
+- **Packed consumer checks:** `npm pack` produced the updated
+  `webhook-delivery-engine-1.0.0.tgz` with the logger utility. The demo lockfile
+  was regenerated from that tarball; `pnpm install --frozen-lockfile --offline`
+  passed. Demo tests passed (9 files, 45 tests); demo lint and production build
+  passed. An initial demo test run found an old installed copy of the same
+  version tarball; reinstalling the local package refreshed it, after which the
+  full demo suite passed.
+- **Dependency verification:** `pino`, `thread-stream`, and
+  `real-require@0.2.0` are absent from the root and demo package manifests and
+  lockfiles. The packed package manifest has no Pino dependency. A fresh Socket
+  report was not run; this record makes no claim about other Socket findings.
+- **Failures/open bugs:** No remaining test, typecheck, lint, build, or formatting
+  failures. No release or publication was performed.
+- **Go/No-Go:** Go for WBS 13.3 review. The next release check must still
+  address deferred WBS 13.2 as directed by the stakeholder.
+
 ## WBS 13.1 High CVE Dependency Remediation — 2026-10-28
 
 - **Scope:** Replace vulnerable production `zod@3.25.76` with patched `zod@4.6.7` and apply the Socket-optimized `safe-buffer` override to `@socketregistry/safe-buffer@1.0.9`.
@@ -965,4 +1017,4 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Change:** Added pnpm overrides in `examples/demo/package.json` for `zod@^4.6.7` and the Socket-optimized `safe-buffer` alternative; regenerated the demo lockfile. The demo lock now resolves Zod 4.6.7 and `@socketregistry/safe-buffer@1.0.9`.
 - **Validation:** Root `pnpm audit --prod` and demo `pnpm audit --prod` both report no known vulnerabilities. Demo frozen-lockfile install passed; demo tests passed (9 files, 45 tests), lint passed, and build passed. Root suite/typecheck/lint/build results are recorded above.
 - **Socket follow-up:** Draft PR #115 ran post-change checks: `Socket Security: Pull Request Alerts` passed with “No new dependency alerts” and zero annotations; `Socket Security: Project Report` passed and generated report `6325285b-3406-4d14-b3b3-e143fa4b05a6`. Both standard Verify jobs passed. The Socket checks do not expose a total High-alert count in their GitHub summary.
-- **Status:** The known High audit finding is absent from both tracked pnpm dependency trees, and Socket PR Alerts report no new dependency alerts. WBS 13.1 is in review on draft PR #115; the Socket report's full severity details are not present in the check summary, and merge is pending.
+- **Status:** The known High audit finding is absent from both tracked pnpm dependency trees, and Socket PR Alerts report no new dependency alerts. The implementation was merged in PR #115 on 2026-10-28; PR #116 merged the follow-up runbook and QA-record updates. The Socket report's full severity details are not present in the check summary, so zero High alerts is not independently verified.
