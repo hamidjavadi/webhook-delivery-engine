@@ -947,3 +947,13 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Environment:** Node.js v24.16.0; Vitest 3.2.7; standalone `examples/demo` project.
 - **Limitations:** No live deployment or separate browser viewport inspection was requested or performed. No demo API, engine source, or public API changed.
 - **Go/No-Go:** Go for local implementation review; all executed test, lint, and build checks passed.
+
+## WBS 13.1 High CVE Dependency Remediation — 2026-10-28
+
+- **Scope:** Replace vulnerable production `zod@3.25.76` with patched `zod@4.6.7` and apply the Socket-optimized `safe-buffer` override to `@socketregistry/safe-buffer@1.0.9`.
+- **Environment:** Node.js v24.16.0; pnpm 10.4.1 (project-pinned; pnpm install and CI commands).
+- **Baseline:** `pnpm audit --prod` reported High advisory GHSA-mrhx-c7xc-m3w5 against `zod@3.25.76`.
+- **Changes:** `package.json` and `pnpm-lock.yaml` now resolve Zod 4.6.7. Socket Optimize added the production `safe-buffer` registry override. A lockfile-only offline install completed successfully.
+- **Validation:** Post-change `pnpm audit --prod` reported no known vulnerabilities; `pnpm exec vitest run --coverage` passed (20 files, 401 tests; 98.54% statements/lines, 95.53% branches, 99.09% functions); `pnpm exec tsc --noEmit`, `pnpm lint`, and `pnpm build` passed. A direct `npm audit --audit-level=high` attempt failed with `ENOLOCK` because the repository uses `pnpm-lock.yaml` and has no npm lockfile; `pnpm audit --prod` is the audit against the project's authoritative lockfile.
+- **Limitations:** A post-change Socket scan was not run because the Socket CLI reported no API token configured. No payload-size behavior or source code changed. Existing v1.0.0 security-exception exit criteria still require a documented maximum recursive payload-array size and regression coverage before a subsequent package release.
+- **Go/No-Go:** Local dependency audit and CI-quality checks pass. WBS 13.1 remains in progress until a Socket scan confirms zero High alerts and its evidence is recorded; no release approval is implied.

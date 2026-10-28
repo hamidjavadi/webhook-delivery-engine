@@ -42,7 +42,7 @@
     "dotenv": "^16.4.7",
     "pino": "^9.6.0",
     "undici": "8.12.3",
-    "zod": "^3.24.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
@@ -70,7 +70,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"
-    ]
+    ],
+    "overrides": {
+      "safe-buffer": "npm:@socketregistry/safe-buffer@^1"
+    }
   },
   "engines": {
     "node": ">=24.0.0"
