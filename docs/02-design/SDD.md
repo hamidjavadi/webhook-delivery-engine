@@ -120,11 +120,11 @@ sequenceDiagram
 
 ### 2.5 Structured JSON Logger (WBS 6.3)
 
-The engine uses the existing `pino` runtime dependency through `src/shared/logger.ts`. `createWebhookEngine` accepts an optional typed `logLevel`; when omitted it uses `LOG_LEVEL`, then defaults to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written through Pino's standard output destination.
+The engine uses the internal Node.js stream-based JSON logger through `src/shared/logger.ts` and `src/utils/json-logger.ts`; no external logging dependency is required. `createWebhookEngine` accepts an optional typed `logLevel`; when omitted it uses `LOG_LEVEL`, then defaults to `info`. Supported values are `fatal`, `error`, `warn`, `info`, `debug`, `trace`, and `silent`; invalid values fail during engine construction. Records are newline-delimited JSON written to standard output or an injected writable stream.
 
 The composition root passes the logger through narrow logging callbacks so feature modules do not write directly to the console. Records identify lifecycle events such as engine start/stop, stale-lease recovery counts, accepted events, claims, dispatch starts, attempt outcomes and persistence results, and scheduler/delivery failures. Records may include event and tenant identifiers, attempt number, status code, latency, and safe error type. They must not include payloads, request bodies, arbitrary event headers, HMAC secrets, raw exception messages, or stacks.
 
-Pino redaction removes known sensitive fields, credential-like values in host-provided data, HMAC key fields, payload/body fields, and nested event/request equivalents as defense in depth. Internal logging uses explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; there is no added transport, file sink, or telemetry exporter.
+The logger recursively removes known sensitive keys, credential-like values in host-provided data, HMAC key fields, payload/body fields, and header containers before serialization. Internal logging uses explicit safe fields and fixed error type labels rather than serializing `WebhookEvent` or raw error objects. The host remains free to configure process output routing; there is no added transport, file sink, or telemetry exporter.
 
 Tests verify supported level selection and filtering, JSON record shape, event context, redaction of sensitive values at nested paths, and that poll/delivery errors do not leak raw messages or stacks.
 
@@ -146,7 +146,7 @@ Tests verify supported level selection and filtering, JSON record shape, event c
 | **Config Provider** (WBS 5.x)          | Validates and exposes `timeoutLimitMs` (default 10 000), `maxAttempts` (default 5), backoff `base=1000`, `capMs=60000`, poll interval, batch size (default 10); re-read per cycle for hot-reload; safe fallback to defaults on invalid values (risk R5). | None                             |
 | **Query Interface** (WBS 6.x)          | Tenant-scoped programmatic reads of event status and attempt history; every query carries `AND client_id = :configuredClientId`. | Adapters, Engine Configuration   |
 | **Engine Composition & Lifecycle** (WBS 6.2) | Public package factory composes migrations, SQLite adapter, ingestion/query facade, scheduler, and delivery worker; exposes explicit asynchronous start/stop lifecycle for the host process. | Existing application modules |
-| **Structured Logger** (WBS 6.3)        | Pino-backed JSON lifecycle logging with configured level and mandatory redaction of credentials, HMAC secrets, payloads, and request bodies (risk R6).                                                                                                      | Pino, Engine Composition         |
+| **Structured Logger** (WBS 6.3)        | Node.js built-in stream-based JSON lifecycle logging with configured level and mandatory redaction of credentials, HMAC secrets, payloads, and request bodies (risk R6).                                                                                 | Node.js streams, Engine Composition |
 
 High cohesion / low coupling: every module depends only on the `DatabaseAdapter` and `EngineConfig` contracts; no module imports a concrete driver directly. This isolates dialect quirks (risk R7) behind the adapter seam.
 
@@ -535,9 +535,9 @@ The mock receiver uses signed request headers to record a bounded attempt summar
 
 ### 12.3 API and Data Exposure
 
-Routes are limited to health/readiness, scenario creation, custom fixed-destination ingestion, and run-scoped status/attempt reads. API errors use stable generic messages; detailed stack traces and Pino logs stay on server output and are not streamed to visitors. Requests enforce JSON content type, payload/key length limits, scenario enum validation, and per-IP scenario rate limiting. Responses are bounded and include event ID, status, attempt ordinal/status/timing, and sanitized error category. Run identifiers are unguessable and every read verifies the run-to-event association held by the demo service; callers cannot query arbitrary engine IDs. In-memory run association and telemetry indexes may reset on process restart and are never treated as durable records.
+Routes are limited to health/readiness, scenario creation, custom fixed-destination ingestion, and run-scoped status/attempt reads. API errors use stable generic messages; detailed stack traces and structured engine logs stay on server output and are not streamed to visitors. Requests enforce JSON content type, payload/key length limits, scenario enum validation, and per-IP scenario rate limiting. Responses are bounded and include event ID, status, attempt ordinal/status/timing, and sanitized error category. Run identifiers are unguessable and every read verifies the run-to-event association held by the demo service; callers cannot query arbitrary engine IDs. In-memory run association and telemetry indexes may reset on process restart and are never treated as durable records.
 
-The React UI provides fixed scenario buttons, custom payload/idempotency fields, a polling event table/timeline, attempt details, and a visible notice: actual embedded engine, demo-owned HTTPS receiver, temporary SQLite, and Render Free sleep/reset behavior. It does not expose raw Pino logs or arbitrary URL entry.
+The React UI provides fixed scenario buttons, custom payload/idempotency fields, a polling event table/timeline, attempt details, and a visible notice: actual embedded engine, demo-owned HTTPS receiver, temporary SQLite, and Render Free sleep/reset behavior. It does not expose raw engine logs or arbitrary URL entry.
 
 ### 12.4 Sequence
 
@@ -644,3 +644,20 @@ The card continues to receive the same `DemoRunView`; no API or state changes ar
 ## 15. Demo Version Display (WBS 12.1)
 
 The demo header renders the application version beside its brand. The client imports the canonical root `package.json` metadata and displays its `version` field, avoiding a separate version constant. A page-rendering test verifies the value appears in the header before the hero content. This presentation-only change introduces no runtime API, package, or deployment behavior and requires no ADR.
+
+## 16. WBS 13.3 Trivial Dependency Removal (ADR-0008 Accepted)
+
+Socket finding `real-require@0.2.0` is transitive through Pino and
+thread-stream, rather than a direct application import. The proposed design
+removes the private Pino-backed logger and its logging-only dependency tree,
+while preserving the engine's existing logger boundary and methods. A focused
+utility under `src/utils/` will serialize structured records, apply level
+filtering, write to stdout or an injected writable destination, and remove the
+configured sensitive fields before serialization. No external replacement
+dependency or public engine API change is proposed.
+
+This architecture change is approved by ADR-0008. Tests cover level
+precedence/filtering, JSON record fields, destination output, and nested
+sensitive-field removal. Implementation and local root/demo validation are
+recorded in `docs/04-testing/test-plan.md`; a fresh Socket report remains
+unrun.

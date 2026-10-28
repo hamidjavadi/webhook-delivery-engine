@@ -174,3 +174,34 @@ Display the root package's current version in the demo's top brand area. Read th
 1. The top brand area shows `v` followed by the current root package version.
 2. A page-rendering test verifies the package version is present before the hero section.
 3. Demo tests, lint, and production build pass.
+
+## 9. Socket Dependency Remediation — WBS 13.3 (Proposed)
+
+### In Scope
+
+- Remove Socket finding `real-require@0.2.0` from the root dependency tree.
+- Preserve the private structured logger contract, JSON fields, configured
+  levels, optional writable destination, and configured secret/payload
+  redaction while replacing Pino with a Node.js built-in implementation.
+- Add a focused utility under `src/utils/` and deterministic unit coverage.
+- Update dependency manifests/lockfile and planning, design, and QA records.
+- Keep WBS 13.2 deferred to the next release check under the stakeholder's
+  2026-10-28 sequencing authorization.
+
+### Out of Scope
+
+- New external dependencies, public engine API changes, new logging options,
+  changes to event/delivery behavior, or release/publishing.
+- WBS 13.2 dynamic-execution remediation, which remains separately deferred.
+
+### Acceptance Criteria
+
+1. `real-require@0.2.0` and Pino's logging-only dependency tree are absent from
+   the root and demo manifests/lockfiles.
+2. JSON log shape, level filtering, destination writes, and nested sensitive
+   field removal have deterministic focused tests.
+3. Root API and logging configuration remain compatible.
+4. Required tests, coverage, lint, typecheck, and build pass and their actual
+   results are recorded.
+5. ADR-0008 is accepted before implementation; no release or publication is
+   part of this task.
