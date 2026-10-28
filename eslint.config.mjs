@@ -29,12 +29,11 @@ export default tseslint.config(
           paths: [
             {
               name: 'node:console',
-              message:
-                'Please use the application structured logger (pino) instead of node:console.',
+              message: 'Please use the application structured logger instead of node:console.',
             },
             {
               name: 'console',
-              message: 'Please use the application structured logger (pino) instead of console.',
+              message: 'Please use the application structured logger instead of console.',
             },
           ],
         },

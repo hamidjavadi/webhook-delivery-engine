@@ -16,6 +16,7 @@ export default defineConfig({
         'src/security/**/*.ts',
         'src/shared/**/*.ts',
         'src/storage/**/*.ts',
+        'src/utils/**/*.ts',
       ],
       exclude: ['src/**/*.test.ts'],
       thresholds: {
@@ -35,6 +36,12 @@ export default defineConfig({
           statements: 95,
         },
         'src/shared/logger.ts': {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95,
+        },
+        'src/utils/json-logger.ts': {
           branches: 95,
           functions: 95,
           lines: 95,

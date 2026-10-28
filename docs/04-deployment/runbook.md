@@ -143,7 +143,7 @@ The Render Blueprint should pin Node.js 24+, install the root package with pnpm,
 2. Trigger immediate success, retry recovery, terminal 401, retry exhaustion (`failed`), and SSRF rejection; confirm attempt history and status through the UI.
 3. Confirm requests target only the configured HTTPS demo receiver and signed headers verify there.
 4. Confirm SIGTERM invokes and awaits `engine.stop()` and the process exits within the platform grace window.
-5. Confirm the public API does not return raw Pino logs, stack traces, secrets, or another run's event data.
+5. Confirm the public API does not return raw engine logs, stack traces, secrets, or another run's event data.
 6. Observe and document the expected reset after a service restart; do not treat lost demo records as a recovery defect.
 
 ### Demo Rollback and Disablement
