@@ -39,17 +39,17 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^16.4.7",
     "undici": "8.12.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@eslint/js": "^9.20.0",
-    "@types/better-sqlite3": "^7.6.12",
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.12",
-    "eslint": "^9.20.1",
+    "eslint": "^10.13.0",
     "node-gyp": "^13.1.0",
     "prettier": "^3.5.1",
     "tsx": "^4.19.3",
