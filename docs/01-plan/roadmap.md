@@ -108,3 +108,13 @@ Planning estimate: 2 engineering hours for WBS 11.1. Rework the timeline card la
 ### Demo Version Display — WBS 12.1
 
 Display the root package version in the demo's top brand area, sourcing it from `package.json`. This is a small demo presentation update with no API, package behavior, or deployment changes. Implementation and local validation are recorded in WBS 12.1 and the test plan.
+
+### Socket Dependency Remediation — WBS 13.0
+
+WBS 13.1–13.3 are complete and approved by the stakeholder; WBS 13.2 is fixed,
+and WBS 13.4 is complete by stakeholder cancellation with implementation
+acceptance waived. WBS 13.5 dependency updates and root/demo validation are
+complete. TypeScript remains at 5.9.3 because `typescript-eslint@8.72.1`
+supports versions below 6.1.0. Package version metadata is advanced to 1.0.1
+for the compatible patch release; publishing and tagging remain separate
+release actions.

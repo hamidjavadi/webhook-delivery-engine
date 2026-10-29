@@ -46,7 +46,7 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
 | **R-13** | Public demo abused as an outbound request proxy | 3 | 5 | 15 | High | Demo Owner | Requests attempt arbitrary destination delivery or excessive scenario execution | Server-side fixed receiver URL only; strict schema/body bounds, rate limits, bounded run telemetry, no caller control of tenant/config; retain HTTPS SSRF validation and pinning | Disable scenario ingestion while leaving read-only landing/health page available; inspect sanitized counters and redeploy after fix |
 | **R-14** | Render Free sleep/restart loses SQLite and delays scenarios | 4 | 3 | 12 | High | Demo Owner | Idle spin-down, restart, or redeploy clears events or causes cold-start delay | Disclose transient state and wake behavior in UI/docs; initialize schema/engine at process startup; health endpoint reflects readiness | User reruns scenarios after wake; do not claim durability; move to paid persistent service only via separately approved scope |
-| **R-15** | Telemetry leaks payload, signature, or internal errors | 3 | 5 | 15 | High | Demo Owner | Public API returns data outside the requesting demo run or exposes logs/stacks | Bounded per-run event access, generated IDs, sanitized error summaries, payload size limits; do not expose Pino stream or secrets | Disable telemetry endpoint, clear in-memory run index on restart, investigate and rotate demo-only secret |
+| **R-15** | Telemetry leaks payload, signature, or internal errors | 3 | 5 | 15 | High | Demo Owner | Public API returns data outside the requesting demo run or exposes logs/stacks | Bounded per-run event access, generated IDs, sanitized error summaries, payload size limits; do not expose process logs or secrets | Disable telemetry endpoint, clear in-memory run index on restart, investigate and rotate demo-only secret |
 
 ### Demo UI Enhancement Risks (Issue #91)
 
@@ -75,6 +75,25 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 | **R-21** | Recursive ingestion payload validation can consume excessive memory on oversized arrays (GHSA-mrhx-c7xc-m3w5; `zod@3.25.76`) | 3 | 5 | 15 | High; exception approved for v1.0.0 | Project Engineering Owner | An application passes a very large or adversarial nested array to `handleIngestion` | Host applications must bound payload size and validate untrusted input before calling the engine; do not expose ingestion without host-owned access controls | Remove the exception before the next release by upgrading to a patched Zod version and adding an explicit, documented bound to recursive array payloads with regression tests |
 
 The stakeholder explicitly approved publishing v1.0.0 with this finding on 2026-10-27. No technical mitigation for the unbounded recursive array schema is included in v1.0.0. This exception applies only to this release and must be resolved before any subsequent package release.
+
+### WBS 13.3 Dependency Hardening Risk — 2026-10-28
+
+| ID | Risk | Likelihood | Impact | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| R-22 | Replacing Pino may change log shape, level filtering, or redaction while removing transitive `real-require@0.2.0` | 2 | 4 | 8 | Medium | Project engineering owner | Consumer log parsing changes, level behavior differs, or sensitive values appear in output | Preserve the private logger contract; test every supported level, record shape, destination behavior, and nested sensitive keys before/after implementation; accept ADR-0008 before code changes | Revert the logger/dependency change before release; retain the existing implementation and record an approved dependency exception if parity cannot be achieved safely |
+
+WBS 13.1–13.3 are complete per stakeholder confirmation. WBS 13.2 is fixed;
+WBS 13.3 is deployed and approved on dev; WBS 13.4 is closed by stakeholder
+cancellation with implementation acceptance waived. WBS 13.5 is complete with
+TypeScript 7 documented as incompatible with the currently selected
+TypeScript ESLint parser range. Package version metadata is 1.0.1; publication
+and tagging remain subject to the release gate.
+
+### WBS 13.5 TypeScript Compatibility Risk
+
+| ID | Risk | Likelihood | Impact | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| R-23 | TypeScript 7 adoption is blocked by `typescript-eslint@8.72.1` peer support ending below 6.1.0 | 3 | 2 | 6 | Medium | Engineering | Tooling needs TypeScript 7 before the parser supports it | Keep TypeScript 5.9.3 and record the upstream peer range; re-evaluate after a compatible parser release | Upgrade parser and TypeScript together, then rerun root/demo validation |
 
 ## 3. Contingency & Fallback Protocols
 

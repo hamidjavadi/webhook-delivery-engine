@@ -1,6 +1,6 @@
 {
   "name": "webhook-delivery-engine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Embeddable Node.js webhook delivery engine with persistent retries.",
   "license": "MIT",
   "repository": "github:hamidjavadi/webhook-delivery-engine",
@@ -30,7 +30,8 @@
     "dist/src"
   ],
   "scripts": {
-    "build": "tsc --project tsconfig.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/storage/migrations/sql', 'dist/src/storage/migrations/sql', { recursive: true });\"",
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
+    "build": "pnpm clean && tsc --project tsconfig.json && node --input-type=module -e \"import { cpSync } from 'node:fs'; cpSync('src/storage/migrations/sql', 'dist/src/storage/migrations/sql', { recursive: true });\"",
     "test": "vitest run",
     "benchmark:ingestion": "tsx scripts/benchmark-ingestion.ts",
     "test:watch": "vitest",
@@ -38,24 +39,23 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "better-sqlite3": "^11.8.1",
-    "dotenv": "^16.4.7",
-    "pino": "^9.6.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.9",
     "undici": "8.12.3",
-    "zod": "^3.24.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@eslint/js": "^9.20.0",
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^24.0.0",
-    "@vitest/coverage-v8": "^3.2.7",
-    "eslint": "^9.20.1",
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.0.5",
+    "eslint": "^10.13.0",
     "node-gyp": "^13.1.0",
     "prettier": "^3.5.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.24.0",
-    "vitest": "^3.0.5"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
   },
   "lint-staged": {
     "*.ts": [
@@ -70,7 +70,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"
-    ]
+    ],
+    "overrides": {
+      "safe-buffer": "npm:@socketregistry/safe-buffer@^1"
+    }
   },
   "engines": {
     "node": ">=24.0.0"

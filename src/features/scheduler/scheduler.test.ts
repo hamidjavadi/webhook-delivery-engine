@@ -116,6 +116,18 @@ describe('ClaimScheduler', () => {
     await expect(scheduler.stop()).resolves.toBeUndefined();
   });
 
+  it('resolves sleep immediately when its signal is already aborted', async () => {
+    const scheduler = new ClaimScheduler(makeMockAdapter(), BASE_CONFIG, vi.fn());
+    const controller = new AbortController();
+    controller.abort();
+    const sleep = Reflect.get(scheduler, 'sleep') as (
+      ms: number,
+      signal: AbortSignal,
+    ) => Promise<void>;
+
+    await expect(sleep.call(scheduler, POLL_INTERVAL, controller.signal)).resolves.toBeUndefined();
+  });
+
   // -------------------------------------------------------------------------
   // Stale lease recovery — runs once per cycle before claiming
   // -------------------------------------------------------------------------

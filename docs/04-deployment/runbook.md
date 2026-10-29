@@ -1,6 +1,6 @@
 # Deployment and Operations Runbook
 
-- **Status:** Pre-release; production deployment is not approved.
+- **Status:** npm package v1.0.0 published; hosted demo deployment approved 2026-10-27 and live health verified.
 - **Owner:** Project engineering (Hamid Javadi).
 - **Scope:** SQLite v1.0 runtime and operational readiness.
 
@@ -81,6 +81,15 @@ require a clean audit before any subsequent package release. The approval and
 technical exit criteria are recorded in `docs/04-testing/test-plan.md` and
 `docs/01-plan/risks.md`.
 
+### v1.0.0 Publication Record
+
+The public npm registry contains `webhook-delivery-engine@1.0.0`. Registry
+metadata was verified on 2026-10-27; the published tarball is
+`webhook-delivery-engine-1.0.0.tgz`. The package was published under the
+approved dependency audit exception above. This publication record does not
+describe deployment of the hosted demo; that deployment was separately
+approved on 2026-10-27.
+
 For storage recovery changes, verify behavior with
 `pnpm exec vitest run src/storage/sqlite.adapter.test.ts`. For WBS 3.2 URL
 validation, verify the deterministic suite with
@@ -120,9 +129,9 @@ Never delete or rewrite the live database to resolve a migration or recovery
 failure. Preserve the database and logs for investigation and escalate to the
 project engineering owner.
 
-## Hosted Demo Operations (WBS 9.0; Render Free; Pre-Deployment)
+## Hosted Demo Operations (WBS 9.0; Render Free; Live)
 
-The hosted demo is a separate, non-production Express + Vite/React pnpm project. One Node.js 24+ process owns the Express API/static assets, fixed HTTPS mock receiver, and embedded engine. Build the root package with pnpm, then install and build `examples/demo` with its own lockfile; no registry publication is needed for this deployment. The app must expose `/api/health` with not-ready status until engine startup and migrations complete.
+The hosted demo is a separate, non-production Express + Vite/React pnpm project. One Node.js 24+ process owns the Express API/static assets, fixed HTTPS mock receiver, and embedded engine. Build the root package with pnpm, then install and build `examples/demo` with its own lockfile; no registry publication is needed for this deployment. The app must expose `/api/health` with not-ready status until engine startup and migrations complete. Deployment was approved on 2026-10-27. Live verification on 2026-10-27 returned HTTP 200 and `{"status":"ready"}` from `/api/health`; success delivered on attempt 1, retry recovery delivered on attempt 2 after a 503, terminal 401 failed after attempt 1, retry exhaustion failed after three 503 attempts, and the fixed loopback SSRF scenario was rejected as `invalid_destination` before dispatch. The signature verification endpoint returned `valid: true` for all seven receiver-observed attempts across the delivery scenarios. A first cold-start success run timed out during status retrieval and was gone after an in-memory reset; rerunning the success scenario after the service became ready passed. This confirms the documented transient-state behavior.
 
 Render Free may spin the service down after inactivity, has cold-start delay, and does not provide persistent disk. The demo's local SQLite file, in-memory run index, and scenario counters are transient and can reset on sleep/restart/redeploy. The UI must disclose this. Configure a public HTTPS receiver origin for the same demo service; if missing or invalid, fail startup/readiness. No loopback exception or custom dispatcher is permitted. Only fixed scenario and receiver destinations are accepted. Do not use this demo for production event data.
 
@@ -134,7 +143,7 @@ The Render Blueprint should pin Node.js 24+, install the root package with pnpm,
 2. Trigger immediate success, retry recovery, terminal 401, retry exhaustion (`failed`), and SSRF rejection; confirm attempt history and status through the UI.
 3. Confirm requests target only the configured HTTPS demo receiver and signed headers verify there.
 4. Confirm SIGTERM invokes and awaits `engine.stop()` and the process exits within the platform grace window.
-5. Confirm the public API does not return raw Pino logs, stack traces, secrets, or another run's event data.
+5. Confirm the public API does not return raw engine logs, stack traces, secrets, or another run's event data.
 6. Observe and document the expected reset after a service restart; do not treat lost demo records as a recovery defect.
 
 ### Demo Rollback and Disablement
