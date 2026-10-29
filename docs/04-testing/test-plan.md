@@ -1048,3 +1048,18 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Go/No-Go:** Go for WBS 13.5 implementation and local validation. TypeScript
   7 remains deferred until TypeScript ESLint supports it. Publication remains
   subject to the existing release criteria.
+
+## v1.0.1 Publication Approval — 2026-10-29
+
+- **Approval:** Stakeholder approved merging `dev` into `main`, tagging v1.0.1,
+  and publishing the package, including a one-release R-21 exception while the
+  recursive payload-array bound and regression coverage remain open.
+- **Exception boundary:** This approval applies to v1.0.1 only. Resolve R-21
+  and run a clean production dependency audit before any later package release.
+- **Release validation:** Latest `dev` commit `1e85ebc` passed CI; promotion PR
+  #129 passed Node 24 verification and Socket PR Alerts before merge. Root/demo
+  tests, lint, builds, audits, and package checks are recorded in the WBS 13.5
+  QA entry above.
+- **Publication result:** Published `webhook-delivery-engine@1.0.1` to the npm
+  registry on 2026-10-29 with the `latest` tag. Registry metadata confirms the
+  tarball URL and integrity `sha512-K7o56zIy+y/TLy/gwjFn4vy49+X5NEeZ8/rEyebpD1wKS5tdEOOIGAa17HpEA0z5DnigII2ECgr3JKUNlNsiYg==`.
