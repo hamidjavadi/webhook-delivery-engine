@@ -997,8 +997,8 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
   report was not run; this record makes no claim about other Socket findings.
 - **Failures/open bugs:** No remaining test, typecheck, lint, build, or formatting
   failures. No release or publication was performed.
-- **Go/No-Go:** Go for WBS 13.3 review. The next release check must still
-  address deferred WBS 13.2 as directed by the stakeholder.
+- **Go/No-Go:** Local implementation checks passed. Stakeholder confirmed the
+  dev deployment was successful and approved on 2026-10-29.
 
 ## WBS 13.1 High CVE Dependency Remediation — 2026-10-28
 
@@ -1009,7 +1009,9 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Validation:** Post-change `pnpm audit --prod` reported no known vulnerabilities; `pnpm exec vitest run --coverage` passed (20 files, 401 tests; 98.54% statements/lines, 95.53% branches, 99.09% functions); `pnpm exec tsc --noEmit`, `pnpm lint`, and `pnpm build` passed. A direct `npm audit --audit-level=high` attempt failed with `ENOLOCK` because the repository uses `pnpm-lock.yaml` and has no npm lockfile; `pnpm audit --prod` is the audit against the project's authoritative lockfile.
 - **Socket GitHub check:** After merge to `dev`, commit `f6aca91592822f744f8aadd2efe0d7d6ee48a7dc` received `Socket Security: Project Report` with conclusion `success` (Socket report ID `02955f74-6f12-487c-bdcd-c6fcc1ed761f`). The GitHub check summary confirms report generation and links to the full dependency report, but does not expose severity counts or confirm zero High alerts. The report dashboard could not be inspected through the available GitHub check output; Socket CLI remains unavailable because no API token is configured locally.
 - **Limitations:** No payload-size behavior or source code changed. Existing v1.0.0 security-exception exit criteria still require a documented maximum recursive payload-array size and regression coverage before a subsequent package release.
-- **Go/No-Go:** Local dependency audit and CI-quality checks pass; the dev Socket Project Report completed successfully. WBS 13.1 remains in progress until the full Socket report confirms zero High alerts and its evidence is recorded; no release approval is implied.
+- **Go/No-Go:** Local dependency audit and CI-quality checks pass. On
+  2026-10-29, the stakeholder confirmed all Socket alerts were removed; WBS
+  13.1 is Done. No release approval is implied by this historical record.
 
 ### WBS 13.1 Follow-up — Standalone Demo Dependency Tree — 2026-10-28
 
@@ -1018,3 +1020,31 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Validation:** Root `pnpm audit --prod` and demo `pnpm audit --prod` both report no known vulnerabilities. Demo frozen-lockfile install passed; demo tests passed (9 files, 45 tests), lint passed, and build passed. Root suite/typecheck/lint/build results are recorded above.
 - **Socket follow-up:** Draft PR #115 ran post-change checks: `Socket Security: Pull Request Alerts` passed with “No new dependency alerts” and zero annotations; `Socket Security: Project Report` passed and generated report `6325285b-3406-4d14-b3b3-e143fa4b05a6`. Both standard Verify jobs passed. The Socket checks do not expose a total High-alert count in their GitHub summary.
 - **Status:** The known High audit finding is absent from both tracked pnpm dependency trees, and Socket PR Alerts report no new dependency alerts. The implementation was merged in PR #115 on 2026-10-28; PR #116 merged the follow-up runbook and QA-record updates. The Socket report's full severity details are not present in the check summary, so zero High alerts is not independently verified.
+
+## WBS 13.5 Dependency Modernization QA — 2026-10-29
+
+- **Scope:** Upgrade root and standalone demo dependencies for SQLite,
+  linting, testing, coverage, Node types, and dotenv. TypeScript 7 is recorded
+  as an explicit exception because `typescript-eslint@8.72.1` supports only
+  TypeScript versions `<6.1.0`.
+- **Root versions:** `better-sqlite3@13.0.3`, `@types/better-sqlite3@9.6.0`,
+  `eslint@10.13.0`, `@eslint/js@10.0.1`, `typescript-eslint@8.72.1`,
+  `vitest@5.0.5`, `@vitest/coverage-v8@5.0.5`, `@types/node@26.6.6`, and
+  `dotenv@18.0.9`.
+- **Root checks:** Node.js v24.16.0; typecheck, lint, build, and 414 tests
+  passed. Coverage: 98.25% statements, 96.59% branches, 99.36% functions,
+  and 98.56% lines. `pnpm audit --prod` reported no known vulnerabilities.
+- **Demo checks:** ESLint 10, TypeScript ESLint 8.72.1, Vitest/coverage 5.0.5,
+  and Node types 26.6.6; the packed engine resolves SQLite 13.0.3 and dotenv
+  18.0.9. Demo lint and build passed; 9 files and 45 tests passed; production
+  audit reported no known vulnerabilities.
+- **Performance:** `pnpm benchmark:ingestion` on Node.js v24.16.0, Linux x64,
+  measured 100 warmups and 1,500 requests across three 500-request rounds.
+  Nearest-rank round p95 values were 0.268673, 0.188597, and 0.221820 ms;
+  median p95 was 0.221820 ms, compared with the recorded 0.2477 ms baseline.
+  The 50 ms target passed and dispatch attempts were zero.
+- **Version/status:** Root package version metadata advanced from 1.0.0 to
+  1.0.1. No release tag, publication, or deployment was performed.
+- **Go/No-Go:** Go for WBS 13.5 implementation and local validation. TypeScript
+  7 remains deferred until TypeScript ESLint supports it. Publication remains
+  subject to the existing release criteria.

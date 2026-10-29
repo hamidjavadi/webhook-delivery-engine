@@ -82,9 +82,18 @@ The stakeholder explicitly approved publishing v1.0.0 with this finding on 2026-
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
 | R-22 | Replacing Pino may change log shape, level filtering, or redaction while removing transitive `real-require@0.2.0` | 2 | 4 | 8 | Medium | Project engineering owner | Consumer log parsing changes, level behavior differs, or sensitive values appear in output | Preserve the private logger contract; test every supported level, record shape, destination behavior, and nested sensitive keys before/after implementation; accept ADR-0008 before code changes | Revert the logger/dependency change before release; retain the existing implementation and record an approved dependency exception if parity cannot be achieved safely |
 
-WBS 13.2 is deferred to the next release check by stakeholder direction on
-2026-10-28. WBS 13.3 is proceeding under an explicit sequencing exception;
-WBS 13.4 and 13.5 remain blocked on 13.2 unless separately authorized.
+WBS 13.1–13.3 are complete per stakeholder confirmation. WBS 13.2 is fixed;
+WBS 13.3 is deployed and approved on dev; WBS 13.4 is closed by stakeholder
+cancellation with implementation acceptance waived. WBS 13.5 is complete with
+TypeScript 7 documented as incompatible with the currently selected
+TypeScript ESLint parser range. Package version metadata is 1.0.1; publication
+and tagging remain subject to the release gate.
+
+### WBS 13.5 TypeScript Compatibility Risk
+
+| ID | Risk | Likelihood | Impact | Score | Priority | Owner | Trigger | Prevention | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| R-23 | TypeScript 7 adoption is blocked by `typescript-eslint@8.72.1` peer support ending below 6.1.0 | 3 | 2 | 6 | Medium | Engineering | Tooling needs TypeScript 7 before the parser supports it | Keep TypeScript 5.9.3 and record the upstream peer range; re-evaluate after a compatible parser release | Upgrade parser and TypeScript together, then rerun root/demo validation |
 
 ## 3. Contingency & Fallback Protocols
 
