@@ -18,7 +18,7 @@
     "express": "^5.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "webhook-delivery-engine": "file:.package/webhook-delivery-engine-1.0.0.tgz"
+    "webhook-delivery-engine": "file:.package/webhook-delivery-engine-1.0.1.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

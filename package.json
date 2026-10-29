@@ -1,6 +1,6 @@
 {
   "name": "webhook-delivery-engine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Embeddable Node.js webhook delivery engine with persistent retries.",
   "license": "MIT",
   "repository": "github:hamidjavadi/webhook-delivery-engine",

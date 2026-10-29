@@ -175,7 +175,7 @@ Display the root package's current version in the demo's top brand area. Read th
 2. A page-rendering test verifies the package version is present before the hero section.
 3. Demo tests, lint, and production build pass.
 
-## 9. Socket Dependency Remediation — WBS 13.3 (Proposed)
+## 9. Socket Dependency Remediation — WBS 13.3 (Completed)
 
 ### In Scope
 
@@ -185,14 +185,13 @@ Display the root package's current version in the demo's top brand area. Read th
   redaction while replacing Pino with a Node.js built-in implementation.
 - Add a focused utility under `src/utils/` and deterministic unit coverage.
 - Update dependency manifests/lockfile and planning, design, and QA records.
-- Keep WBS 13.2 deferred to the next release check under the stakeholder's
-  2026-10-28 sequencing authorization.
+- Record stakeholder-confirmed completion of WBS 13.2 and approved dev
+  deployment for WBS 13.3.
 
 ### Out of Scope
 
 - New external dependencies, public engine API changes, new logging options,
   changes to event/delivery behavior, or release/publishing.
-- WBS 13.2 dynamic-execution remediation, which remains separately deferred.
 
 ### Acceptance Criteria
 
@@ -205,3 +204,14 @@ Display the root package's current version in the demo's top brand area. Read th
    results are recorded.
 5. ADR-0008 is accepted before implementation; no release or publication is
    part of this task.
+
+## 10. Dependency Modernization and Phase 13 Closeout — WBS 13.1–13.5
+
+The stakeholder directed that WBS 13.1–13.5 be recorded Done. WBS 13.1 is
+verified with all Socket alerts removed; WBS 13.2 is fixed; WBS 13.3 is deployed
+and approved on dev; WBS 13.4 is Done by cancellation with implementation
+acceptance waived. WBS 13.5 upgrades the root and demo dependency sets,
+including better-sqlite3, ESLint, TypeScript ESLint, Vitest/coverage, Node types,
+and dotenv. TypeScript 7 is a compatibility exception until the selected
+TypeScript ESLint parser supports it. Package version metadata advances to
+1.0.1; publication and tagging are excluded here.

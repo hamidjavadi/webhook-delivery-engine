@@ -455,5 +455,18 @@ governed by accepted ADR-0008.
 
 Acceptance requires focused behavior tests, full required quality checks, and
 evidence that `real-require@0.2.0` is absent from the root and demo manifests
-and lockfiles. WBS 13.2 remains deferred to the next release check by stakeholder
-direction dated 2026-10-28.
+and lockfiles. The stakeholder confirmed WBS 13.2 fixed and directed all WBS
+13.1–13.5 work packages to be recorded Done on 2026-10-29. WBS 13.4 is closed
+by cancellation with implementation acceptance waived.
+
+## WBS 13.5 Dependency Modernization Addendum
+
+Upgrade the SQLite runtime/type packages, ESLint configuration packages,
+TypeScript ESLint integration, test runner/coverage provider, Node.js types, and
+dotenv in the root package and standalone demo dependency tree where
+applicable. Keep TypeScript at 5.9.3 because `typescript-eslint@8.72.1` declares
+support only for versions below 6.1.0. Acceptance evidence includes root and
+demo test/lint/build checks, production dependency audits, lockfile verification,
+and a repeat embedded-ingestion benchmark against the recorded baseline. The
+compatible patch version is 1.0.1; package publication and tagging require the
+separate release gate.

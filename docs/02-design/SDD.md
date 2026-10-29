@@ -661,3 +661,15 @@ precedence/filtering, JSON record fields, destination output, and nested
 sensitive-field removal. Implementation and local root/demo validation are
 recorded in `docs/04-testing/test-plan.md`; a fresh Socket report remains
 unrun.
+
+## 17. WBS 13.5 Dependency Modernization
+
+The root package and standalone demo use `better-sqlite3@13.0.3` with
+`@types/better-sqlite3@9.6.0`, ESLint 10.13.0 with `@eslint/js@10.0.1`,
+`typescript-eslint@8.72.1`, Vitest and its V8 coverage provider 5.0.5,
+`@types/node@26.6.6`, and dotenv 18.0.9. The demo consumes a freshly packed
+root library tarball so its lockfile resolves the same SQLite and dotenv runtime
+dependencies. TypeScript remains 5.9.3 because the selected TypeScript ESLint
+version declares a TypeScript peer range below 6.1.0. Public engine contracts
+and storage behavior remain unchanged; root and demo checks and the ingestion
+benchmark are recorded in the test plan.
