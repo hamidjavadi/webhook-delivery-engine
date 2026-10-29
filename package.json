@@ -40,22 +40,22 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
-    "dotenv": "^16.4.7",
+    "dotenv": "^18.0.9",
     "undici": "8.12.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^24.0.0",
-    "@vitest/coverage-v8": "^4.1.12",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.0.5",
     "eslint": "^10.13.0",
     "node-gyp": "^13.1.0",
     "prettier": "^3.5.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.24.0",
-    "vitest": "^4.1.12"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
   },
   "lint-staged": {
     "*.ts": [
