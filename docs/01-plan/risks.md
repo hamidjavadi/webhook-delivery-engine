@@ -72,9 +72,9 @@ Risks are assessed using a standard matrix combining **Likelihood (L: 1–5)** a
 
 | ID | Risk | Likelihood (1–5) | Impact (1–5) | Score | Priority | Owner | Trigger | Prevention | Contingency |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
-| **R-21** | Recursive ingestion payload validation can consume excessive memory on oversized arrays (GHSA-mrhx-c7xc-m3w5; `zod@3.25.76`) | 3 | 5 | 15 | High; exception approved for v1.0.0 | Project Engineering Owner | An application passes a very large or adversarial nested array to `handleIngestion` | Host applications must bound payload size and validate untrusted input before calling the engine; do not expose ingestion without host-owned access controls | Remove the exception before the next release by upgrading to a patched Zod version and adding an explicit, documented bound to recursive array payloads with regression tests |
+| **R-21** | Recursive ingestion payload validation can consume excessive memory on oversized arrays; original GHSA-mrhx-c7xc-m3w5 package finding against `zod@3.25.76` is remediated, but no explicit array bound exists | 3 | 5 | 15 | High; one-release exception approved for v1.0.0 and v1.0.1 | Project Engineering Owner | An application passes a very large or adversarial nested array to `handleIngestion` | Host applications must bound payload size and validate untrusted input before calling the engine; do not expose ingestion without host-owned access controls | Before any release after v1.0.1, define and document an explicit recursive-array bound and add regression tests; require a clean production dependency audit |
 
-The stakeholder explicitly approved publishing v1.0.0 with this finding on 2026-10-27. No technical mitigation for the unbounded recursive array schema is included in v1.0.0. This exception applies only to this release and must be resolved before any subsequent package release.
+The stakeholder approved publishing v1.0.0 with this risk on 2026-10-27 and approved a one-release extension for v1.0.1 on 2026-10-29. The Zod advisory is no longer present in the production dependency audit; no technical mitigation for the unbounded recursive array schema is included in v1.0.1. This exception expires before the next package release, which requires an explicit array bound, regression coverage, and a clean production audit.
 
 ### WBS 13.3 Dependency Hardening Risk — 2026-10-28
 
@@ -86,8 +86,8 @@ WBS 13.1–13.3 are complete per stakeholder confirmation. WBS 13.2 is fixed;
 WBS 13.3 is deployed and approved on dev; WBS 13.4 is closed by stakeholder
 cancellation with implementation acceptance waived. WBS 13.5 is complete with
 TypeScript 7 documented as incompatible with the currently selected
-TypeScript ESLint parser range. Package version metadata is 1.0.1; publication
-and tagging remain subject to the release gate.
+TypeScript ESLint parser range. Package version metadata is 1.0.1; tag `v1.0.1`
+was created on main and the package was published to npm on 2026-10-29.
 
 ### WBS 13.5 TypeScript Compatibility Risk
 

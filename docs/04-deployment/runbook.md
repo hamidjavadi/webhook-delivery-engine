@@ -67,18 +67,21 @@ For a development/release-candidate package build:
    and release approval. A consuming host configures persistent storage and
    secrets, then awaits engine start/stop as part of its own lifecycle.
 
-### v1.0.0 Dependency Audit Exception — Approved 2026-10-27
+### R-21 Payload-Size Exception — Approved for v1.0.0 and v1.0.1
 
-The stakeholder approved publishing v1.0.0 despite `pnpm audit --prod`
-reporting high-severity GHSA-mrhx-c7xc-m3w5 for resolved `zod@3.25.76`.
-The recursive ingestion payload schema accepts unbounded arrays, so adversarial
-oversized collections may exhaust memory during validation. This is a release
-exception, not a clean audit result or an implementation fix. Host applications
-must bound payload size and validate untrusted input before passing it to the
-engine, and must enforce their own access controls around ingestion. The
-exception expires for release purposes after v1.0.0; resolve the finding and
-require a clean audit before any subsequent package release. The approval and
-technical exit criteria are recorded in `docs/04-testing/test-plan.md` and
+The stakeholder approved publishing v1.0.0 on 2026-10-27 and approved the
+v1.0.1 release exception on 2026-10-29. The original High audit finding against
+`zod@3.25.76` was addressed by upgrading Zod; production dependency audits now
+report no known vulnerabilities. A separate input-size risk remains: the
+recursive ingestion payload schema has no explicit maximum array bound, so
+adversarial oversized collections may consume excessive memory during
+validation. The v1.0.1 approval is a one-release exception for this residual
+behavioral risk, not a technical mitigation. Host applications must bound
+payload size and validate untrusted input before passing it to the engine, and
+must enforce their own access controls around ingestion. Before any package
+release after v1.0.1, define and document a maximum recursive array size, add
+regression coverage, and require a clean production dependency audit. Approval
+and technical exit criteria are recorded in `docs/04-testing/test-plan.md` and
 `docs/01-plan/risks.md`.
 
 ### v1.0.0 Publication Record
