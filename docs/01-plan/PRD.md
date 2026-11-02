@@ -470,3 +470,52 @@ demo test/lint/build checks, production dependency audits, lockfile verification
 and a repeat embedded-ingestion benchmark against the recorded baseline. The
 compatible patch version is 1.0.1; package publication and tagging require the
 separate release gate.
+
+## Landing Page Addendum (Issue #131 / WBS 14.0; Planning Approved)
+
+### Problem and Users
+
+The repository describes a developer-facing webhook delivery library, but
+visitors need a concise, visual introduction to its purpose, guarantees,
+security boundaries, and getting-started documentation. The primary users are
+engineers evaluating webhook delivery options and maintainers sharing the
+project.
+
+### SMART Goal and Success Criteria
+
+Within the approved WBS 14 implementation, deliver a responsive standalone
+landing page in `landing-page/` that explains the library using claims verified
+against the README and API guide, and directs visitors to the package,
+documentation, and hosted demo. Completion is measured against the acceptance
+criteria below; the 4–6 hour WBS estimate is provisional, not a deadline or
+delivery commitment.
+
+### Requirements and Acceptance Criteria
+
+1. The landing page is self-contained under `landing-page/` and can be previewed
+   locally using the approach documented with the implementation.
+2. The page clearly describes the embeddable Node.js/TypeScript library, SQLite
+   persistence, idempotent ingestion, bounded retries, attempt history, signed
+   deliveries, and SSRF protections without promising exactly-once delivery,
+   DLQ support, or capabilities excluded from v1. State that v1 is a
+   single-tenant SQLite MVP, with one configured client identity per engine /
+   database.
+3. Content follows the approved outline: overview, current features, Node.js
+   24+ quick start using the documented `npm install` command, clearly labeled
+   future roadmap, and contribution/project links.
+4. Visitors can navigate to the API guide, GitHub repository, npm package,
+   hosted demo, and author LinkedIn profile through working links.
+5. The layout remains usable at narrow and wide viewport sizes, has semantic
+   structure, keyboard-accessible links, visible focus, sufficient contrast,
+   and respects reduced-motion preferences if motion is used.
+6. No library behavior, public API, package dependencies, hosted deployment,
+   analytics, contact form, or backend service is added.
+7. Design and implementation checkpoints are approved; relevant accessibility,
+   link, and static build/preview checks are reported with actual results.
+
+### Constraints, Assumptions, and Exclusions
+
+The page is a project-marketing/documentation entry point rather than an
+operator dashboard. It will live outside `examples/demo`; the implementation
+stack and preview command are specified in SDD §18. Hosting, custom domains,
+analytics, lead capture, and changes to README/package behavior are excluded.

@@ -118,3 +118,14 @@ complete. TypeScript remains at 5.9.3 because `typescript-eslint@8.72.1`
 supports versions below 6.1.0. Package version metadata is advanced to 1.0.1
 for the compatible patch release; publishing and tagging remain separate
 release actions.
+
+### Project Landing Page — Issue #131 / WBS 14.0 (Planning and Design Approved)
+
+Provisional estimate: 4–6 engineering hours, with uncertainty until
+implementation begins. Planning (14.1) and design (14.2) checkpoints were
+approved on 2026-11-02. Next, seek the implementation checkpoint before
+building the independent static page in `landing-page/` (14.3), then run scoped
+checks and update QA records (14.4). The measurable output is a standalone,
+responsive project introduction with accurate feature/security claims and
+working documentation, package, and demo links. No hosting or deployment
+milestone is included.

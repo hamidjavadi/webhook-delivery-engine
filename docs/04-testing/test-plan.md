@@ -1063,3 +1063,51 @@ WBS 10.4 presentation work is recorded below; WBS 10.5 final focused QA results 
 - **Publication result:** Published `webhook-delivery-engine@1.0.1` to the npm
   registry on 2026-10-29 with the `latest` tag. Registry metadata confirms the
   tarball URL and integrity `sha512-K7o56zIy+y/TLy/gwjFn4vy49+X5NEeZ8/rEyebpD1wKS5tdEOOIGAa17HpEA0z5DnigII2ECgr3JKUNlNsiYg==`.
+
+## Project Landing Page QA Plan — Issue #131 / WBS 14.0
+
+- **Status:** Planned; implementation not started.
+- **Scope:** Validate the standalone static page in `landing-page/` against
+  PRD Issue #131 and SDD §18. Library runtime/API, package manifests, demo
+  behavior, hosting, and deployment are excluded.
+- **Approach:** Use the repository's Vitest runner for focused content/link and
+  document-structure checks, plus formatting and static HTML/CSS validation.
+  Preview with Python's built-in static HTTP server. Manually inspect keyboard
+  navigation/focus, narrow and wide layouts, contrast, reduced motion, and
+  actual external destinations (API guide, GitHub repository/issues, npm,
+  hosted demo, and user-supplied author profile). Check quick-start fields
+  against `README.md` and `docs/API.md` and confirm roadmap items are labeled as
+  future work. Do not treat formatting or source assertions as proof of browser
+  accessibility.
+- **Environment and data:** Node.js 24+, pnpm 10.4.1, repository dependencies,
+  local static server, and synthetic/static page content only. No credentials,
+  customer data, analytics, or external runtime resources. External links are
+  checked as destinations without sending user data.
+- **Responsibilities:** Engineering owns implementation and automated checks;
+  reviewer/stakeholder approves the implementation checkpoint and reviews
+  content, accessibility, and scope.
+- **Entry criteria:** Planning and design checkpoints approved; SDD §18,
+  acceptance criteria, and the landing-page directory boundary agreed.
+- **Exit criteria:** Focused page checks, repository tests, lint, formatting,
+  typecheck, and applicable build/static checks pass; manual responsive and
+  accessibility checks are recorded; feature claims and links are reviewed;
+  no unapproved dependency, library/API, or deployment changes are present.
+- **Coverage:** Preserve repository gates of at least 80% overall and 95% for
+  critical paths. The static page adds no critical executable path; report
+  measured repository coverage after implementation rather than assigning
+  source-code coverage to static markup and styles.
+- **Regression:** Confirm root library tests and public API remain unchanged;
+  run demo tests only if the page change touches demo files (planned scope does
+  not).
+- **Reporting:** Record command, environment, actual pass/fail results,
+  measured coverage, manual viewport/accessibility observations, open issues,
+  and Go/No-Go below. No landing-page tests or preview have been run yet.
+
+### Planning and Design Checkpoint Record — 2026-11-02
+
+- **Actual results:** `git diff --check` passed for the planning/design
+  documentation. Node.js v24.16.0 and pnpm 10.4.1 were observed. No page tests,
+  build, preview, or accessibility inspection was run because implementation
+  has not started.
+- **Go/No-Go:** Go to implementation planning only after the user approves
+  the separate implementation checkpoint; this record is not a QA pass.
