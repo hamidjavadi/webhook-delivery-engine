@@ -215,3 +215,36 @@ including better-sqlite3, ESLint, TypeScript ESLint, Vitest/coverage, Node types
 and dotenv. TypeScript 7 is a compatibility exception until the selected
 TypeScript ESLint parser supports it. Package version metadata advances to
 1.0.1; publication and tagging are excluded here.
+
+## 11. Project Landing Page — Issue #131 / WBS 14.0 (Approved 2026-11-02)
+
+### In Scope
+
+- Create a standalone project landing page under `landing-page/`.
+- Explain the library's verified purpose, core features, delivery/security
+  boundaries, and how to get started.
+- Include a concise overview, current features, quick start, clearly labeled
+  roadmap, and contribution/project links.
+- Link to the API guide, GitHub repository, npm package, hosted demo, and
+  verified author LinkedIn profile.
+- Provide responsive, semantic, keyboard-accessible presentation and document
+  how to preview it locally.
+- Add focused checks appropriate to the selected implementation approach.
+
+### Out of Scope
+
+- Changes to the library, its public API, package/dependency manifests, or the
+  existing hosted demo.
+- A dashboard, backend, contact/lead form, analytics, account/authentication
+  flows, or user data collection.
+- Hosting, domain setup, deployment, package publication, or unsupported
+  delivery guarantees/features.
+
+### Assumptions
+
+- The page is an independent project introduction, not a replacement for the
+  README, API guide, or hosted interactive demo.
+- The approved design uses static HTML and CSS without a framework, build
+  system, or new dependency; see SDD §18.
+- Content is verified against the current README, API guide, and approved v1
+  scope. Any externally hosted target links must be checked before completion.

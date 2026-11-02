@@ -673,3 +673,134 @@ dependencies. TypeScript remains 5.9.3 because the selected TypeScript ESLint
 version declares a TypeScript peer range below 6.1.0. Public engine contracts
 and storage behavior remain unchanged; root and demo checks and the ingestion
 benchmark are recorded in the test plan.
+
+## 18. Project Landing Page — Issue #131 / WBS 14.0 (Design Approved)
+
+**Status:** Design approved 2026-11-02. Implementation remains pending its
+separate implementation checkpoint.
+
+### 18.1 Goals, Boundaries, and Visual Direction
+
+The page is an independent introduction for engineers evaluating or adopting
+the Webhook Delivery Engine. Its content hierarchy is:
+
+1. Overview and project promise: “Reliable webhook delivery for Node.js.”
+2. Current MVP features: durable SQLite queue, idempotent ingestion,
+   at-least-once delivery with bounded full-jitter retries, attempt records,
+   engine-bound tenant-scoped queries, HMAC-SHA-256 signing, and SSRF
+   protections.
+3. Node.js 24+ quick start with a concise example that matches the current
+   public API and links to the full API guide.
+4. Roadmap, with v1.1.0 observability and v2.0.0 multi-tenancy/extensibility
+   explicitly marked as planned, without delivery dates or guarantees.
+5. Contribution and project links.
+
+The page states that this is a programmatic embedded library, not a hosted
+service or REST API, and that v1 is a single-tenant SQLite MVP. One configured
+`clientId` and HMAC secret belong to an engine instance/database; do not imply
+that a shared database currently supports multiple tenant configurations.
+
+The visual direction is an editorial dispatch ledger: warm paper-like canvas,
+ink-dark typography, sharp citrus and signal-orange accents, fine ruled lines,
+oversized editorial headings, and compact monospace delivery records. An
+asymmetric hero pairs the product promise with a small illustrative event
+ledger; following sections explain the delivery lifecycle, guarantees and
+boundaries, and installation. This is a static product introduction, not an
+operator dashboard.
+
+Non-goals are an interactive product demo replacement, dashboard, backend,
+account flow, analytics, lead form, or new public engine functionality.
+Content must not promise exactly-once delivery, a dead-letter queue, arbitrary
+multi-tenant configuration, or other excluded v1 capabilities.
+
+### 18.2 Architecture and Module Responsibilities
+
+Implement a dependency-free static page under `landing-page/`:
+
+- `index.html` owns the document semantics, content, landmarks, navigation,
+  links, and installation snippet.
+- `styles.css` owns layout, type hierarchy, colors, responsive behavior,
+  decorative ledger details, focus treatment, and reduced-motion behavior.
+- No client-side JavaScript, framework, build pipeline, API client, or external
+  font/image/analytics request is needed. Use CSS and markup for the decorative
+  illustration so the page remains self-contained.
+
+The browser loads the static document and its local stylesheet. Documentation,
+npm, repository, contribution, hosted-demo, and author links navigate directly
+to their respective destinations:
+
+- API guide: `https://github.com/hamidjavadi/webhook-delivery-engine/blob/dev/docs/API.md`
+- Repository: `https://github.com/hamidjavadi/webhook-delivery-engine`
+- Issues/contributions: `https://github.com/hamidjavadi/webhook-delivery-engine/issues`
+- npm package: `https://www.npmjs.com/package/webhook-delivery-engine`
+- Hosted demo: `https://webhook-delivery-engine-3tu0.onrender.com/`
+- Author profile: `https://www.linkedin.com/in/hamidjavadi/` (supplied by the user)
+
+Local preview can use Python's built-in static HTTP server; no root or demo
+package scripts or dependencies are changed.
+
+### 18.3 Data, Contracts, Security, and Failure Modes
+
+The page stores no user input, cookies, or local data and exposes no API/event
+contract. It contains no runtime secrets or configuration. Claims and code
+examples are checked against the README, API guide, and approved v1 scope. The
+quick start must use `databasePath`, a required `hmacSecret`, `idempotency_key`,
+`payload`, and (if shown) the documented `destination_url` field; it must not
+use `dbPath` or `destinationUrl`. State Node.js 24+ and the documented npm
+install command. The sample is explanatory server-side Node.js code, not
+browser code.
+
+Roadmap details are copied from `docs/01-plan/roadmap.md` and visibly labeled
+future/planned, not current features or time commitments. The contribution
+section points to repository issues/contribution entry points without
+promising unverified support. The author credit links to the profile URL
+supplied by the user.
+
+There are no third-party runtime resources, external scripts, tracking
+requests, or remote fonts. External destinations are explicit ordinary links;
+navigation failure is owned by the destination and does not affect the static
+page. Missing or unavailable static assets must not prevent the core content
+from being read.
+
+### 18.4 Accessibility, Responsive Layout, and Performance
+
+Use semantic `header`, `nav`, `main`, `section`, and `footer` landmarks with a
+logical heading order, descriptive link text, and visible keyboard focus.
+Maintain readable contrast and avoid conveying status or meaning through color
+alone. Reflow content at narrow widths without horizontal scrolling or
+overlapping controls. If transitions are used, honor
+`prefers-reduced-motion: reduce`. With no scripts or remote assets, the page
+adds no client-side execution or third-party loading dependency.
+
+### 18.5 Key Flow
+
+```mermaid
+sequenceDiagram
+    actor Visitor
+    participant Browser
+    participant StaticPage as Landing Page Files
+    participant Destination as Docs, npm, or Hosted Demo
+    Visitor->>Browser: Open project landing page
+    Browser->>StaticPage: GET index.html and styles.css
+    StaticPage-->>Browser: Static page and styles
+    Browser-->>Visitor: Render responsive project overview
+    Visitor->>Browser: Activate a navigation link
+    Browser->>Destination: Navigate to selected resource
+    Destination-->>Browser: Return destination content
+```
+
+### 18.6 Verification, Preview, and Trade-offs
+
+Verify HTML structure, all link destinations, narrow/wide layouts, keyboard
+focus, color contrast, reduced-motion behavior, and formatting. Run a local
+static preview and report actual checks in the WBS 14 QA record and
+`docs/04-testing/test-plan.md`; do not infer browser or accessibility results
+from a successful format check alone. Check the quick-start property names and
+enqueue input against README/API documentation, and verify roadmap wording
+remains clearly prospective.
+
+Plain HTML/CSS is selected over adding a framework or build system because the
+page has no dynamic behavior and the approved scope excludes dependency changes.
+The trade-off is that content and styling are edited directly rather than
+through reusable components; this is appropriate for a single static page.
+Deployment and hosting remain out of scope.

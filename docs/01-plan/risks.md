@@ -126,3 +126,11 @@ queued claims may be released only on restart through stale-lease recovery.
 - **Phase 2 (SDD Checkpoint):** Validate that all **High** and **Critical** items (R-01, R-03) have concrete architectural countermeasures in `SDD.md` and related ADRs.
 - **Phase 4 (Testing & QA Gate):** Verify that test suites validate R-01 (concurrency test with ≥100 workers), R-02 (crash injection), and R-03 (SSRF test matrix) with ≥95% coverage on critical paths.
 - **Post-Release (Runtime):** Continuously review structured JSON audit logs, retry latency percentiles, and terminal failure rates on a weekly cadence.
+
+### Project Landing Page Risks (Issue #131 / WBS 14.0; Planning Approved)
+
+| ID | Risk | Likelihood | Impact | Score | Priority | Trigger | Owner | Preventive Action | Contingency |
+| :--- | :--- | :---: | :---: | :---: | :--- | :--- | :--- | :--- | :--- |
+| R-24 | Landing page overstates delivery guarantees, security, roadmap, or API capabilities | 2 | 4 | 8 | Medium | Copy claims differ from the current product/API contract or future plans appear shipped | Product / Engineering | Verify capabilities and API fields against README/API guide/scope, label roadmap items planned, retain at-least-once semantics and v1 exclusions | Correct or remove unsupported claims before accepting the page |
+| R-25 | A separate page toolchain adds avoidable maintenance or conflicts with repository tooling | 2 | 3 | 6 | Low | Implementation needs a new package/dependency or duplicates demo setup | Frontend Engineering | Choose the simplest standalone approach and reuse existing tools where appropriate; get approval before adding dependencies | Keep the page static or defer the dependency-based approach for explicit review |
+| R-26 | Links or responsive/accessibility details fail for visitors | 2 | 3 | 6 | Low | Broken destinations, keyboard barriers, contrast issues, or narrow-screen overflow | Frontend Engineering | Check target URLs and validate keyboard navigation, focus, contrast, reduced motion, and representative viewport widths | Fix the affected content/layout and rerun scoped checks before completion |

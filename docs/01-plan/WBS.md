@@ -17,6 +17,7 @@
 - **WBS 6.0:** Public Interfaces (TS Library & Logging)
 - **WBS 7.0:** Verification, Concurrency Testing & CI/CD Pipeline
 - **WBS 8.0:** Documentation & Phase-Gate Review
+- **WBS 14.0:** Standalone Project Landing Page (Planning/Design Approved)
 
 ---
 
@@ -174,3 +175,15 @@ Execute each work package independently, with separate change reviews/commits to
 #### WBS 13.0 Release Tag Progression
 
 Release once, after 13.1–13.5 and the phase acceptance criteria are complete. Expected all-compatible-fixes progression: `v1.0.0 → v1.0.1` (single phase-end tag). If review confirms a public API, execution-adapter, strict-validation, or dependency behavior change that requires MINOR SemVer, use one phase-end tag `v1.1.0` instead. Do not create intermediate release tags for individual work packages; their commits and reviews remain separate for regression attribution. Version metadata is advanced to 1.0.1; no tag, publication, or deployment is included in this change.
+
+### WBS 14.0: Standalone Project Landing Page (Issue #131; Design Approved)
+
+Planning estimate: 4–6 engineering hours total, subject to design and scope
+approval. No production deployment is included.
+
+| Task ID | Task Description | Dependencies | Owner | Est. | Acceptance Criteria | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **14.1** | Plan project landing page scope and acceptance | User request | Product / Engineering | 0.5h | PRD, scope, WBS, roadmap, and risks describe a standalone page under `landing-page/`; planning checkpoint is approved. | Done; approved 2026-11-02 |
+| **14.2** | Design page structure, visual direction, and implementation approach | 14.1 | Product / Frontend Eng | 0.5–1h | SDD records content hierarchy, links, responsive/accessibility requirements, preview approach, and selected implementation; design checkpoint is approved before coding. | Done; approved 2026-11-02 |
+| **14.3** | Implement standalone landing page | 14.2 | Frontend Eng | 2–3h | Page accurately presents the approved overview, current features, quick start, planned roadmap, and contribution links; verified repository/package/demo/author links work; responsive/accessibility requirements pass without library/API or dependency changes. | Pending; implementation not started |
+| **14.4** | Validate page and update QA records | 14.3 | QA / Engineering | 1–1.5h | Relevant static/build/preview, link, responsive, accessibility, and formatting checks are run and actual results are recorded; QA records and task status are updated. | Pending |
